@@ -1,0 +1,6 @@
+# Tiny request-echo — handy for checking what headers reach a tenant.
+name = "whoami"
+type = "function"
+image = "traefik/whoami"
+port = 80
+idle_timeout = "5m"

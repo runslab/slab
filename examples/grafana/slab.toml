@@ -1,0 +1,6 @@
+# Grafana — scale-to-zero: wakes when you open it, sleeps 10m after you leave.
+name = "grafana"
+type = "function"
+image = "grafana/grafana-oss"
+port = 3000
+idle_timeout = "10m"

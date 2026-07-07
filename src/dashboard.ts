@@ -25,21 +25,28 @@ export function dashboardHtml(proxyPort: number): string {
     color: var(--text); min-height: 100vh;
     padding: clamp(20px, 4vw, 56px);
   }
-  .wrap { max-width: 980px; margin: 0 auto; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
 
-  header { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 30px; }
-  .mark { display: flex; gap: 6px; }
-  .mark span {
-    display: grid; place-items: center; width: 44px; height: 44px;
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 26px; }
+  header h1 { font-size: 12px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: var(--faint); }
+  header h1 b { color: var(--amber); font-weight: 700; }
+
+  /* vertical brand spine, mounted beside the rack like a rail badge */
+  .layout { display: grid; grid-template-columns: 46px 1fr; gap: 16px; align-items: start; }
+  .spine { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 24px; }
+  .spine span {
+    display: grid; place-items: center; width: 46px; height: 46px;
     background: linear-gradient(180deg, var(--unit-hi), var(--unit-lo));
     border: 1px solid var(--edge); border-radius: 6px;
-    font-weight: 800; font-size: 20px;
+    font-weight: 800; font-size: 21px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 8px rgba(0,0,0,.45);
   }
-  .mark span:first-child {
+  .spine span:first-child {
     background: linear-gradient(180deg, #ffc36e, #f0a13e); color: #2a1e08; border-color: #b97f2e;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 3px 10px rgba(240,161,62,.25);
   }
+  .spine .vent { height: 46px; border-radius: 6px; border: 1px solid var(--groove);
+    background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.5) 3px 5px); opacity: .5; }
   .stats { display: flex; gap: 28px; text-align: right; }
   .stat b { display: block; font-size: 20px; font-weight: 700; color: var(--text); }
   .stat span { font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: var(--faint); }
@@ -54,9 +61,16 @@ export function dashboardHtml(proxyPort: number): string {
     display: grid; grid-template-columns: 18px 1fr auto auto; gap: 20px; align-items: center;
     background: linear-gradient(180deg, var(--unit-hi), var(--unit-lo));
     border: 1px solid var(--edge); border-radius: 7px;
-    padding: 18px 22px; margin-bottom: 10px; position: relative;
+    padding: 18px 22px 18px 40px; margin-bottom: 10px; position: relative;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 4px 10px rgba(0,0,0,.35);
     transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .unum {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 26px;
+    display: grid; place-items: center;
+    font-size: 9px; letter-spacing: .1em; color: var(--faint);
+    border-right: 1px solid rgba(0,0,0,.35); background: rgba(0,0,0,.15);
+    border-radius: 7px 0 0 7px; writing-mode: vertical-rl;
   }
   .unit:last-child { margin-bottom: 0; }
   .unit:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 8px 18px rgba(0,0,0,.45); }
@@ -124,6 +138,9 @@ export function dashboardHtml(proxyPort: number): string {
     position: sticky; top: 0; background: #0b0c0e; padding-bottom: 6px; }
 
   @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+    .spine { flex-direction: row; position: static; }
+    .spine .vent { display: none; }
     .unit { grid-template-columns: 14px 1fr; }
     .meter, .acts { display: none; }
   }
@@ -132,19 +149,20 @@ export function dashboardHtml(proxyPort: number): string {
 <body>
 <div class="wrap">
 <header>
-  <div>
-    <div class="mark"><span>S</span><span>L</span><span>A</span><span>B</span></div>
-  </div>
+  <h1>the localhost <b>hyperscaler</b></h1>
   <div class="stats">
     <div class="stat"><b id="s-apps">–</b><span>apps</span></div>
     <div class="stat"><b id="s-run">–</b><span>running</span></div>
     <div class="stat"><b id="s-rpm">–<em>/m</em></b><span>requests</span></div>
   </div>
 </header>
-<div class="rack" id="rack"></div>
+<div class="layout">
+  <div class="spine"><span>S</span><span>L</span><span>A</span><span>B</span><div class="vent"></div><div class="vent"></div></div>
+  <div class="rack" id="rack"></div>
+</div>
 <footer>
   <span>ingress :${proxyPort} · api :7766</span>
-  <span>the localhost hyperscaler</span>
+  <span id="clock"></span>
 </footer>
 </div>
 <div id="drawer"><div class="bar"><span id="dtitle"></span><button onclick="drawer.style.display='none'">close</button></div><div id="dbody"></div></div>
@@ -193,10 +211,11 @@ async function load() {
   document.getElementById('s-apps').textContent = apps.length
   document.getElementById('s-run').textContent = apps.filter(a => a.state === 'running').length
   document.getElementById('s-rpm').innerHTML = totalRpm + '<em>/m</em>'
-  document.getElementById('rack').innerHTML = apps.map(a => {
+  document.getElementById('rack').innerHTML = apps.map((a, i) => {
     const url = 'http://' + a.name + '.localhost:${proxyPort}'
     const rpm = a.reqPerMin ?? 0
     return '<div class="unit ' + a.state + '">'
+      + '<div class="unum">U' + String(i + 1).padStart(2, '0') + '</div>'
       + '<div class="led" title="' + a.state + '"></div>'
       + '<div class="plate">'
       +   '<div class="name">' + esc(a.name) + '<small>' + a.state + '</small></div>'
@@ -225,8 +244,13 @@ async function load() {
       + '</div>'
   }).join('') || '<div class="empty">rack is empty — <code>slab deploy ./yourapp</code> mounts the first unit</div>'
 }
+function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString()
+}
 load()
+tick()
 setInterval(load, 5000)
+setInterval(tick, 1000)
 </script>
 </body>
 </html>`
