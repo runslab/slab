@@ -9,6 +9,7 @@ import { createProxy } from './proxy'
 import { createEngine } from './engine'
 import { dashboardHtml } from './dashboard'
 import { openTunnel, closeTunnel } from './tunnel'
+import { cloneOrPull, normalizeGitUrl, repoDirName } from './git'
 
 const IDLE_REAP_INTERVAL_MS = 30_000
 const LAST_REQUEST_SAVE_THROTTLE_MS = 5_000
@@ -64,9 +65,17 @@ async function main(): Promise<void> {
   }))
 
   api.post('/v1/apps', wrap(async (req, res) => {
-    const sourceDir = req.body?.sourceDir
-    if (typeof sourceDir !== 'string' || !path.isAbsolute(sourceDir)) {
-      throw new HttpError(400, 'body must be { sourceDir: <absolute path> }')
+    let sourceDir = req.body?.sourceDir
+    let gitUrl: string | null = null
+    if (typeof req.body?.gitUrl === 'string' && req.body.gitUrl) {
+      gitUrl = normalizeGitUrl(req.body.gitUrl)
+      try {
+        sourceDir = await cloneOrPull(gitUrl, repoDirName(gitUrl))
+      } catch (err) {
+        throw new HttpError(400, (err as Error).message)
+      }
+    } else if (typeof sourceDir !== 'string' || !path.isAbsolute(sourceDir)) {
+      throw new HttpError(400, 'body must be { sourceDir: <absolute path> } or { gitUrl }')
     }
     let manifest: Manifest
     try {
@@ -81,6 +90,7 @@ async function main(): Promise<void> {
     const record: AppRecord = {
       name: manifest.name,
       sourceDir,
+      gitUrl,
       manifest,
       hostPort,
       containerId: null,
@@ -136,6 +146,11 @@ async function main(): Promise<void> {
     record.error = null
     saveState(state)
     try {
+      if (record.gitUrl) {
+        await cloneOrPull(record.gitUrl, path.basename(record.sourceDir))
+        // manifest may have changed upstream — re-read it
+        record.manifest = loadManifest(record.sourceDir)
+      }
       const imageTag = await engine.buildImage(record)
       const secrets = getSecrets(record.name)
       const env: Record<string, string> = { ...record.manifest.env, ...secrets }

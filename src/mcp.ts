@@ -62,14 +62,15 @@ async function main() {
     'slab_create',
     {
       description:
-        'Register a new app with slab from a source directory containing a slab.toml manifest. Does not build or start the app — call slab_deploy afterward to run it.',
+        'Register a new app with slab from a source directory or a git repository URL. The source must contain a slab.toml manifest. Does not build or start the app — call slab_deploy afterward to run it.',
       inputSchema: {
-        sourceDir: z.string().describe('Absolute path to the app source directory containing slab.toml'),
+        sourceDir: z.string().optional().describe('Absolute path to the app source directory containing slab.toml'),
+        gitUrl: z.string().optional().describe('Git repository URL (https://, git@, or shorthand owner/repo); slab clones it and pulls on each deploy'),
       },
     },
-    async ({ sourceDir }) => {
+    async ({ sourceDir, gitUrl }) => {
       try {
-        const { app } = await client.createApp(sourceDir)
+        const { app } = await client.createApp(gitUrl ? { gitUrl } : { sourceDir })
         return ok(app)
       } catch (err) {
         return fail(err)
@@ -81,25 +82,34 @@ async function main() {
     'slab_deploy',
     {
       description:
-        'Build and run an app on slab. Use after creating or changing an app. Pass name for a known app, or sourceDir to deploy directly from a directory (the app is auto-created if not already registered, mirroring `slab deploy <dir>`). Returns the app record including its URL.',
+        'Build and run an app on slab. Use after creating or changing an app. Pass name for a known app, sourceDir to deploy from a directory, or gitUrl to deploy straight from a git repository (auto-created and cloned if not already registered; pulled on every redeploy). Returns the app record including its URL.',
       inputSchema: {
         name: z.string().optional().describe('Name of an already-registered app to deploy'),
         sourceDir: z
           .string()
           .optional()
           .describe('Absolute path to the app source directory; used to auto-create the app if not yet registered'),
+        gitUrl: z.string().optional().describe('Git repository URL; the app is auto-created from the repo if not yet registered'),
       },
     },
-    async ({ name, sourceDir }) => {
+    async ({ name, sourceDir, gitUrl }) => {
       try {
         let appName = name
+        if (!appName && gitUrl) {
+          const { app } = await client.createApp({ gitUrl }).catch(async (e: Error) => {
+            if (!/exists/.test(e.message)) throw e
+            const m = /app "([^"]+)"/.exec(e.message)
+            return client.getApp(m ? m[1] : gitUrl)
+          })
+          appName = app.name
+        }
         if (!appName) {
-          if (!sourceDir) throw new Error('Provide either name or sourceDir')
+          if (!sourceDir) throw new Error('Provide name, sourceDir, or gitUrl')
           try {
             const { app } = await client.getApp(sourceDirToName(sourceDir))
             appName = app.name
           } catch {
-            const { app } = await client.createApp(sourceDir)
+            const { app } = await client.createApp({ sourceDir })
             appName = app.name
           }
         }

@@ -28,7 +28,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const client = {
   health: () => req<{ status: string; apps: number; proxyPort: number }>('GET', '/v1/health'),
   listApps: () => req<{ apps: AppRecord[] }>('GET', '/v1/apps'),
-  createApp: (sourceDir: string) => req<{ app: AppRecord }>('POST', '/v1/apps', { sourceDir }),
+  createApp: (source: { sourceDir?: string; gitUrl?: string }) => req<{ app: AppRecord }>('POST', '/v1/apps', source),
   getApp: (name: string) => req<{ app: AppRecord }>('GET', `/v1/apps/${name}`),
   removeApp: (name: string) => req<void>('DELETE', `/v1/apps/${name}`),
   deploy: (name: string) => req<{ app: AppRecord }>('POST', `/v1/apps/${name}/deploy`),

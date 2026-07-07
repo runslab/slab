@@ -4,6 +4,7 @@ import path from 'path'
 import { Command } from 'commander'
 import { client, appUrl } from './api-client'
 import { loadManifest } from './manifest'
+import { looksLikeGitUrl } from './git'
 import { AppRecord } from './types'
 
 function fail(err: unknown): never {
@@ -52,7 +53,7 @@ async function ensureApp(sourceDir: string): Promise<string> {
   try {
     await client.getApp(manifest.name)
   } catch {
-    await client.createApp(sourceDir)
+    await client.createApp({ sourceDir })
   }
   return manifest.name
 }
@@ -71,22 +72,35 @@ const program = new Command()
 program.name('slab').description('tiny local paas').version('1.0.0')
 
 program
-  .command('create [dir]')
-  .description('create an app from a source dir')
-  .action(action(async (dir?: string) => {
-    const sourceDir = path.resolve(dir ?? process.cwd())
-    const { app } = await client.createApp(sourceDir)
+  .command('create [source]')
+  .description('create an app from a source dir or git url')
+  .action(action(async (source?: string) => {
+    const arg = source ?? process.cwd()
+    const { app } = looksLikeGitUrl(arg) && !isDir(path.resolve(arg))
+      ? await client.createApp({ gitUrl: arg })
+      : await client.createApp({ sourceDir: path.resolve(arg) })
     const { proxyPort } = await client.health()
     console.log(`created ${app.name} (${app.manifest.type}) -> ${appUrl(app, proxyPort)}`)
   }))
 
 program
-  .command('deploy [dirOrName]')
-  .description('deploy an app (builds + starts)')
+  .command('deploy [source]')
+  .description('deploy an app (builds + starts) from a dir, git url, or app name')
   .action(action(async (dirOrName?: string) => {
     const arg = dirOrName ?? process.cwd()
     const asDir = path.resolve(arg)
-    const name = isDir(asDir) ? await ensureApp(asDir) : arg
+    let name: string
+    if (looksLikeGitUrl(arg) && !isDir(asDir)) {
+      const { app } = await client.createApp({ gitUrl: arg }).catch(async (e: Error) => {
+        // 409 = already registered; find it by checkout name convention
+        if (!/exists/.test(e.message)) throw e
+        const m = /app "([^"]+)"/.exec(e.message)
+        return client.getApp(m ? m[1] : arg)
+      })
+      name = app.name
+    } else {
+      name = isDir(asDir) ? await ensureApp(asDir) : arg
+    }
     const { app } = await client.deploy(name)
     if (app.state === 'running') {
       const { proxyPort } = await client.health()

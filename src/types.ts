@@ -20,6 +20,7 @@ export interface Manifest {
 export interface AppRecord {
   name: string
   sourceDir: string         // absolute path to the app source (contains Dockerfile + slab.toml)
+  gitUrl: string | null     // when set, sourceDir is a slab-managed checkout; pulled on each deploy
   manifest: Manifest
   hostPort: number | null   // allocated host port (20000+), null until first deploy
   containerId: string | null
@@ -43,8 +44,9 @@ export interface SlabState {
 // All request/response bodies are JSON. Errors: { error: string } with 4xx/5xx.
 //
 //   GET    /v1/apps                      -> { apps: AppRecord[] }
-//   POST   /v1/apps                      -> body { sourceDir } ; reads slab.toml, creates record
-//                                           -> { app: AppRecord }
+//   POST   /v1/apps                      -> body { sourceDir } OR { gitUrl } ; git sources are
+//                                           cloned to ~/.slab/repos and pulled on each deploy.
+//                                           Reads slab.toml, creates record -> { app: AppRecord }
 //   GET    /v1/apps/:name                -> { app: AppRecord }
 //   DELETE /v1/apps/:name                -> stops container, removes record -> 204
 //   POST   /v1/apps/:name/deploy        -> build + (re)start container -> { app: AppRecord }
