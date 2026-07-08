@@ -83,18 +83,23 @@ Rough order; nothing here is promised, everything here is intended.
    and the agent version: a coding agent in an isolated container with the
    workspace mounted, a budget cap, and results reported back through the
    same API the dashboard reads. This is the sandbox / AI-coding-task story.
-2. **TTL + budget guardrails.** Every app gets an optional `ttl` and
+2. **Stacks — wiring + isolation** (design: [docs/design/stacks.md](docs/design/stacks.md)).
+   A second manifest that groups apps into a system: one Docker network per
+   stack (members reach each other by app name), `public = false` members get
+   no host port at all (the VPC moment), `[wires]` binds one app's needs to
+   another's address. Apps stay decoupled — units never know about systems.
+3. **TTL + budget guardrails.** Every app gets an optional `ttl` and
    spend/uptime budget in slab.toml; the daemon reaps what nobody remembered
    to turn off. Agents create infrastructure faster than humans track it —
    this is the founding lesson of the project.
-3. **Named tunnels.** Stable hostnames on your own domain (Cloudflare named
+4. **Named tunnels.** Stable hostnames on your own domain (Cloudflare named
    tunnels) instead of rotating trycloudflare URLs. Same code path as
    `expose`, config instead of chance.
-4. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
+5. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
    interface already isolates Docker; a second driver renders the same
    manifest to Fargate/Lambda/RDS (or Fly machines). One manifest, one verb
    set, many targets — agents never learn AWS, they learn slab.
-5. **Go rewrite (v1.0, decided).** TypeScript was the right spike language —
+6. **Go rewrite (v1.0, decided).** TypeScript was the right spike language —
    MCP SDK first-class, product-in-a-day. Go is the right shipping language:
    the entire container/networking neighborhood lives there (Docker client,
    `httputil.ReverseProxy`, cloudflared itself), goroutines match the

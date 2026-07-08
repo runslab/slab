@@ -204,10 +204,16 @@ export function dashboardHtml(proxyPort: number): string {
   .empty { border: 1px dashed var(--edge); border-radius: 7px; padding: 44px; text-align: center; color: var(--faint); }
   .empty code { color: var(--amber); }
   footer { color: var(--faint); font-size: 11px; margin-top: 18px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-  .theme { display: flex; align-items: center; gap: 8px; cursor: pointer; text-transform: uppercase; letter-spacing: .14em; font-size: 9px; }
-  .theme input { width: 22px; height: 22px; border: 1px solid var(--edge); border-radius: 50%; background: none; padding: 0; cursor: pointer; }
-  .theme input::-webkit-color-swatch-wrapper { padding: 2px; }
-  .theme input::-webkit-color-swatch { border: none; border-radius: 50%; }
+  .settings { background: none; border: none; color: var(--faint); font: inherit; font-size: 9px;
+    text-transform: uppercase; letter-spacing: .14em; cursor: pointer; padding: 2px 4px; }
+  .settings:hover { color: var(--accent); }
+  .setrow { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #1c1e24; font-size: 12px; }
+  .setrow .k { width: 140px; color: var(--dim); }
+  .setrow input[type=color] { width: 26px; height: 26px; border: 1px solid var(--edge); border-radius: 50%; background: none; padding: 0; cursor: pointer; }
+  .setrow input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  .setrow input[type=color]::-webkit-color-swatch { border: none; border-radius: 50%; }
+  .setrow .swatches { display: flex; gap: 8px; }
+  .setrow .swatches i { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 1px solid var(--edge); }
 
   #drawer {
     position: fixed; left: 0; right: 0; bottom: 0; max-height: 46vh; display: none;
@@ -255,7 +261,7 @@ export function dashboardHtml(proxyPort: number): string {
 </div>
 <footer>
   <span>ingress :${proxyPort} · api :7766</span>
-  <label class="theme">accent <input type="color" id="accent" value="#ffb454"></label>
+  <button class="settings" onclick="openSettings()">settings</button>
   <span id="clock"></span>
 </footer>
 </div>
@@ -413,16 +419,26 @@ function navBoards() {
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString()
 }
-const accentInput = document.getElementById('accent')
 const savedAccent = localStorage.getItem('slab-accent')
-if (savedAccent) {
-  document.documentElement.style.setProperty('--accent', savedAccent)
-  accentInput.value = savedAccent
+if (savedAccent) document.documentElement.style.setProperty('--accent', savedAccent)
+function setAccent(v) {
+  document.documentElement.style.setProperty('--accent', v)
+  localStorage.setItem('slab-accent', v)
+  const inp = document.getElementById('accent-input')
+  if (inp) inp.value = v
 }
-accentInput.addEventListener('input', () => {
-  document.documentElement.style.setProperty('--accent', accentInput.value)
-  localStorage.setItem('slab-accent', accentInput.value)
-})
+function openSettings() {
+  const presets = ['#ffb454', '#6ee7b7', '#82b8e8', '#f07f78', '#d8b4fe', '#e2e8f0']
+  document.getElementById('dtitle').textContent = 'settings'
+  document.getElementById('dapps').innerHTML = ''
+  document.getElementById('dbody').innerHTML =
+    '<div class="setrow"><span class="k">accent color</span>'
+    + '<input type="color" id="accent-input" value="' + (localStorage.getItem('slab-accent') ?? '#ffb454') + '" oninput="setAccent(this.value)">'
+    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="setAccent(\'' + c + '\')"></i>').join('') + '</span>'
+    + '</div>'
+    + '<div class="setrow"><span class="k">state</span><span style="color:var(--faint)">~/.slab · state.json, secrets/, repos/</span></div>'
+  drawer.style.display = 'block'
+}
 load()
 tick()
 setInterval(load, 5000)
