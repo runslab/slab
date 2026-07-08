@@ -1,8 +1,18 @@
 # daemon HTTP API
 
 Base URL: `http://127.0.0.1:7766` (constant `DAEMON_PORT` in
-`src/types.ts`; override the client's target with `SLAB_DAEMON_URL`, the
-daemon itself always binds `127.0.0.1:7766`).
+`src/types.ts`; override the client's target with `SLAB_DAEMON_URL`; the
+daemon binds `SLAB_BIND` (default `127.0.0.1`) on port `SLAB_PORT`
+(default `7766`)).
+
+## auth
+
+Loopback requests are always trusted. Non-loopback requests (a daemon bound
+to `0.0.0.0` on a LAN/tailnet) require `Authorization: Bearer $SLAB_TOKEN`,
+or `?token=$SLAB_TOKEN` as a query param — the dashboard uses the latter
+for remote viewing: open `http://<node>:7766/?token=...` once and the token
+moves to the browser's localStorage and off the URL. With no `SLAB_TOKEN`
+set, non-loopback requests are always rejected.
 
 All request and response bodies are JSON. Every error response is
 `{ "error": string }` with a 4xx or 5xx status — there is no other error

@@ -423,7 +423,11 @@ async function main(): Promise<void> {
     const loopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
     if (loopback) { next(); return }
     if (AUTH_TOKEN && req.headers.authorization === `Bearer ${AUTH_TOKEN}`) { next(); return }
-    res.status(401).json({ error: 'unauthorized — non-loopback requests require Authorization: Bearer $SLAB_TOKEN' })
+    // browsers can't set headers on page loads / EventSource — accept the
+    // token as a query param too (the dashboard moves it to localStorage
+    // and strips it from the URL immediately)
+    if (AUTH_TOKEN && req.query.token === AUTH_TOKEN) { next(); return }
+    res.status(401).json({ error: 'unauthorized — non-loopback requests require Authorization: Bearer $SLAB_TOKEN (or ?token=...)' })
   })
 
   // Rolling 60s of request timestamps per app — powers the req/min column

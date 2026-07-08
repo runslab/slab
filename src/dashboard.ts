@@ -500,6 +500,10 @@ export function dashboardHtml(proxyPort: number): string {
   .chip .lbl { font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: #7a805f; }
   .chip .val { font-size: 11px; color: #ece9e2; margin-top: 2px; word-break: break-all; max-width: 260px; }
   .chip .val.amber { color: var(--amber); }
+  .chip .val a { color: inherit; }
+  .copybtn { background: none; border: 1px solid #34392a; border-radius: 3px; color: #7a805f;
+    font: inherit; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; padding: 0 5px; cursor: pointer; margin-left: 6px; }
+  .copybtn:hover { color: var(--amber); border-color: var(--amber); }
   .chip.wide { flex: 1 1 100%; }
   .wire { display: flex; align-items: center; gap: 8px; font-size: 11px; }
   .wire .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 6px var(--amber); }
@@ -628,6 +632,23 @@ export function dashboardHtml(proxyPort: number): string {
 </div></div>
 <div id="drawer"><div class="bar"><span id="dtitle"></span><span id="dapps"></span><button onclick="drawer.style.display='none'">close</button></div><div id="dbody"></div></div>
 <script>
+// ── remote access: open http://<node>:7766/?token=<SLAB_TOKEN> once — the
+// token moves to localStorage, leaves the URL, and rides every request.
+const _qs = new URLSearchParams(location.search)
+if (_qs.get('token')) {
+  localStorage.setItem('slab-token', _qs.get('token'))
+  history.replaceState(null, '', location.pathname)
+}
+const SLAB_TOKEN = localStorage.getItem('slab-token')
+if (SLAB_TOKEN) {
+  const _fetch = window.fetch.bind(window)
+  window.fetch = (url, opts = {}) => {
+    if (typeof url === 'string' && url.startsWith('/')) {
+      opts.headers = Object.assign({}, opts.headers, { Authorization: 'Bearer ' + SLAB_TOKEN })
+    }
+    return _fetch(url, opts)
+  }
+}
 const drawer = document.getElementById('drawer')
 const hist = {}          // name -> recent reqPerMin samples
 const openBays = new Set()  // names of flipped-open units (persists across refresh)
@@ -744,6 +765,34 @@ function spark(name) {
 function chip(lbl, val, amber) {
   return '<div class="chip"><div class="lbl">' + lbl + '</div><div class="val' + (amber ? ' amber' : '') + '">' + val + '</div></div>'
 }
+// git@github.com:o/r.git -> https://github.com/o/r ; strips .git from https urls
+function gitWebUrl(u) {
+  const m = /^git@([^:]+):(.+?)(\.git)?$/.exec(u)
+  if (m) return 'https://' + m[1] + '/' + m[2]
+  return u.replace(/\.git$/, '')
+}
+function copySource(btn) {
+  const text = btn.dataset.copy
+  const done = () => { const old = btn.textContent; btn.textContent = 'copied'; setTimeout(() => { btn.textContent = old }, 900) }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done)
+  } else {
+    // http-over-LAN (remote dashboard) has no clipboard API — textarea fallback
+    const ta = document.createElement('textarea')
+    ta.value = text; document.body.appendChild(ta); ta.select()
+    document.execCommand('copy'); ta.remove(); done()
+  }
+}
+// source chip: always copyable; git sources also link out to the repo
+function sourceChip(a) {
+  const src = a.gitUrl ?? a.sourceDir
+  const val = a.gitUrl
+    ? '<a href="' + esc(gitWebUrl(a.gitUrl)) + '" target="_blank" onclick="event.stopPropagation()">' + esc(a.gitUrl) + '</a>'
+    : esc(a.sourceDir)
+  return '<div class="chip"><div class="lbl">source'
+    + ' <button class="copybtn" data-copy="' + esc(src) + '" onclick="event.stopPropagation(); copySource(this)" title="copy source">⧉ copy</button></div>'
+    + '<div class="val' + (a.gitUrl ? ' amber' : '') + '">' + val + '</div></div>'
+}
 function boardHtml(a) {
   const secrets = (a.manifest.secrets ?? []).length
     ? a.manifest.secrets.map(esc).join(' · ')
@@ -755,7 +804,7 @@ function boardHtml(a) {
     + '<div class="chip"><div class="lbl">port map</div><div class="val wire">'
     +   '<span class="dot"></span>:' + (a.hostPort ?? '?') + '<span class="lead"></span>:' + a.manifest.port + '<span class="dot"></span>'
     + '</div></div>'
-    + chip('source', esc(a.gitUrl ?? a.sourceDir), !!a.gitUrl)
+    + sourceChip(a)
     + chip('secrets (' + (a.manifest.secrets ?? []).length + ')', secrets)
     + (a.manifest.type === 'function' ? chip('idle timeout', esc(a.manifest.idle_timeout ?? '5m')) : '')
     + (a.manifest.postgres ? chip('postgres', 'slab_' + a.name.replace(/-/g, '_'), true) : '')
@@ -1178,7 +1227,7 @@ function deployChord(app) {
     osc.stop(t + 0.85)
   }
 }
-const es = new EventSource('/v1/events')
+const es = new EventSource('/v1/events' + (SLAB_TOKEN ? '?token=' + encodeURIComponent(SLAB_TOKEN) : ''))
 es.onmessage = (m) => {
   try {
     const e = JSON.parse(m.data)
