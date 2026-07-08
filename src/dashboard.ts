@@ -37,8 +37,9 @@ export function dashboardHtml(proxyPort: number): string {
   .stat span { font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: var(--faint); }
   .stat b em { font-style: normal; color: var(--faint); font-size: 13px; }
 
-  .layout { display: grid; grid-template-columns: 46px 1fr; gap: 16px; align-items: start; }
-  .spine { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 24px; z-index: 20; }
+  .layout { display: block; }
+  .wrap { padding-left: 56px; }
+  .spine { display: flex; flex-direction: column; gap: 2px; position: fixed; top: 48px; left: clamp(8px, 2vw, 40px); z-index: 200; }
   .spine span {
     display: grid; place-items: center; width: 46px; height: 44px;
     font-weight: 800; font-size: 24px; cursor: pointer; position: relative;
@@ -103,6 +104,56 @@ export function dashboardHtml(proxyPort: number): string {
   #overlay text { font-family: ui-monospace, Menlo, monospace; }
   @keyframes cursor { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .cabmark::after { animation: none; } }
+
+  /* ── compiz cube: page <-> workbench ─────────────────────────────── */
+  #cube { position: relative; }
+  #face-bench { display: none; background: var(--bg); }
+  body.bench-anim { overflow: hidden; height: 100vh; perspective: 1600px; }
+  body.bench-anim #cube {
+    transform-style: preserve-3d;
+    transition: transform .6s cubic-bezier(.5,.05,.3,1);
+    height: 100vh;
+  }
+  body.bench-anim #face-rack, body.bench-anim #face-bench {
+    position: absolute; inset: 0; height: 100vh; overflow: hidden;
+    backface-visibility: hidden; display: block;
+  }
+  body.bench-anim #face-rack { transform: translateZ(calc(var(--halfw) * -1)) scale(var(--cubescale, 1)); }
+  body.bench-anim #face-rack { transform: rotateY(0deg) translateZ(var(--halfw)); }
+  body.bench-anim #face-bench { transform: rotateY(90deg) translateZ(var(--halfw)); }
+  body.bench-anim #cube { transform: translateZ(calc(var(--halfw) * -1)); }
+  body.bench-anim.bench-turned #cube { transform: translateZ(calc(var(--halfw) * -1)) rotateY(-90deg); }
+  body.bench-static #face-rack { display: none; }
+  body.bench-static #face-bench { display: block; position: fixed; inset: 0; overflow: auto; z-index: 40; padding: 24px clamp(16px, 3vw, 48px) 40px 72px; }
+  @media (prefers-reduced-motion: reduce) { body.bench-anim #cube { transition: none; } }
+  .bench-head { display: flex; align-items: center; gap: 18px; margin-bottom: 14px; }
+  .bench-head h2 { font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+  .benchback { background: none; border: 1px solid var(--edge); border-radius: 5px; color: var(--dim);
+    font: inherit; font-size: 11px; padding: 5px 14px; cursor: pointer; }
+  .benchback:hover { color: var(--accent); border-color: var(--accent); }
+  #bench-switch { margin-left: auto; display: flex; gap: 6px; }
+  #bench-switch button { background: none; border: 1px solid var(--edge); border-radius: 4px; color: var(--dim);
+    font: inherit; font-size: 10px; padding: 3px 10px; cursor: pointer; }
+  #bench-switch button.active { color: var(--accent); border-color: var(--accent); }
+  .bench-body { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+  #bench-diagram { background: linear-gradient(180deg, #101114, #0c0d10); border: 1px solid var(--groove);
+    border-radius: 12px; padding: 18px; min-height: 60vh; display: flex; align-items: center; }
+  #bench-diagram svg { width: 100%; height: auto; }
+  #bench-diagram .node { cursor: pointer; }
+  #bench-diagram .node:hover rect { stroke: var(--accent); }
+  #bench-diagram .node.sel rect { stroke: var(--accent); stroke-width: 2; }
+  #bench-panel { background: linear-gradient(180deg, #17181d, #101116); border: 1px solid #2b2d34;
+    border-radius: 10px; padding: 16px; position: sticky; top: 16px; }
+  .bench-hint { color: var(--faint); font-size: 11px; text-align: center; padding: 30px 0; }
+  #bench-panel .pname { font-size: 16px; font-weight: 800; margin-bottom: 2px; }
+  #bench-panel .pstate { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin-bottom: 12px; }
+  #bench-panel .prow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  #bench-panel .board { min-height: 0; cursor: default; padding: 12px; }
+  #bench-panel .board::after { content: none; }
+  #bench-panel .pwires { margin-top: 12px; font-size: 11px; }
+  #bench-panel .pwires .w { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid #1c1e24; color: var(--dim); }
+  #bench-panel .pwires .w b { color: var(--accent); font-weight: 500; }
+  @media (max-width: 900px) { .bench-body { grid-template-columns: 1fr; } }
 
   /* monitor deck: spectrum analyzer + listen knob (a component above the cabinets) */
   .deck {
@@ -316,6 +367,13 @@ export function dashboardHtml(proxyPort: number): string {
 </style>
 </head>
 <body>
+<div class="spine" id="spine">
+  <span data-nav="status" onclick="navStatus()">S</span>
+  <span data-nav="logs" onclick="navLogs()">L</span>
+  <span data-nav="api — raw json" onclick="window.open('/v1/apps')">A</span>
+  <span data-nav="boards — flip all" onclick="navBoards()">B</span>
+</div>
+<div id="cube"><div id="face-rack">
 <div class="wrap">
 <header>
   <h1>the localhost <b>hyperscaler</b></h1>
@@ -332,12 +390,6 @@ export function dashboardHtml(proxyPort: number): string {
   <span class="lcd" id="deck-lcd">000 evt/min</span>
 </div>
 <div class="layout">
-  <div class="spine">
-    <span data-nav="status" onclick="navStatus()">S</span>
-    <span data-nav="logs" onclick="navLogs()">L</span>
-    <span data-nav="api — raw json" onclick="window.open('/v1/apps')">A</span>
-    <span data-nav="boards — flip all" onclick="navBoards()">B</span>
-  </div>
   <div id="cabinets"></div>
 </div>
 <footer>
@@ -347,6 +399,17 @@ export function dashboardHtml(proxyPort: number): string {
 </footer>
 </div>
 <div id="overlay" onclick="this.style.display='none'"><div class="panel" onclick="event.stopPropagation()"><h2 id="dg-title"></h2><div class="note">apps call each other along the amber wires - the dashed boundary is the system's private network - click outside to close</div><div id="dg-body"></div></div></div>
+</div><div id="face-bench">
+  <div class="bench-head">
+    <button class="benchback" onclick="exitBench()">&#9666; rack</button>
+    <h2 id="bench-title"></h2>
+    <span id="bench-switch"></span>
+  </div>
+  <div class="bench-body">
+    <div id="bench-diagram"></div>
+    <div id="bench-panel"><div class="bench-hint">click a node to work on it</div></div>
+  </div>
+</div></div>
 <div id="drawer"><div class="bar"><span id="dtitle"></span><span id="dapps"></span><button onclick="drawer.style.display='none'">close</button></div><div id="dbody"></div></div>
 <script>
 const drawer = document.getElementById('drawer')
@@ -539,6 +602,7 @@ async function load() {
   document.getElementById('s-run').textContent = appsCache.filter(a => a.state === 'running').length
   document.getElementById('s-rpm').innerHTML = totalRpm + '<em>/m</em>'
   render()
+  if (benchSys) benchRender()
 }
 async function navStatus() {
   const r = await fetch('/v1/health')
@@ -564,9 +628,9 @@ function navBoards() {
 function nodeColor(a) {
   return a && a.state === 'running' ? '#71d68d' : a && a.state === 'sleeping' ? '#82b8e8' : a && a.state === 'error' ? '#f07f78' : '#5f626a'
 }
-function openDiagram(sysName) {
-  const sys = systemsCache.find(s => s.name === sysName)
-  if (!sys) return
+function openDiagram(sysName) { enterBench(sysName) }
+function diagramSvg(sys, clickable) {
+  if (!sys) return ''
   const members = sys.members.map(n => appsCache.find(a => a.name === n)).filter(Boolean)
   const pub = members.filter(a => a.manifest.public !== false)
   const priv = members.filter(a => a.manifest.public === false)
@@ -584,7 +648,7 @@ function openDiagram(sysName) {
     + '<path d="M0 0 L10 5 L0 10 z" fill="#82b8e8"/></marker></defs>'
   // system boundary (the private network)
   svg += '<rect x="14" y="' + (rowY.pub - 34) + '" width="' + (W - 28) + '" height="' + (H - rowY.pub + 14) + '" rx="12" fill="none" stroke="var(--faint)" stroke-dasharray="7 6" opacity=".55"/>'
-    + '<text x="30" y="' + (rowY.pub - 14) + '" fill="var(--faint)" font-size="10" letter-spacing="2">SLAB-NET-' + esc(sysName).toUpperCase() + '</text>'
+    + '<text x="30" y="' + (rowY.pub - 14) + '" fill="var(--faint)" font-size="10" letter-spacing="2">SLAB-NET-' + esc(sys.name).toUpperCase() + '</text>'
   // ingress node
   if (pub.length) {
     svg += '<rect x="' + (W / 2 - 70) + '" y="' + rowY.ingress + '" width="140" height="34" rx="6" fill="#0b0c0e" stroke="#82b8e8"/>'
@@ -610,7 +674,10 @@ function openDiagram(sysName) {
   for (const n of nodes) {
     const a = n.a
     const priv2 = a.manifest.public === false
-    svg += '<g>'
+    const cls = 'node' + (benchSel === a.name ? ' sel' : '')
+    svg += clickable
+      ? '<g class="' + cls + '" onclick="benchSelect(\\'' + a.name + '\\')">'
+      : '<g>'
       + '<rect x="' + n.x + '" y="' + n.y + '" width="' + NW + '" height="' + NH + '" rx="7" fill="#1b1d22" stroke="' + (priv2 ? 'var(--faint)' : '#33363e') + '"' + (priv2 ? ' stroke-dasharray="4 3"' : '') + '/>'
       + '<circle cx="' + (n.x + 16) + '" cy="' + (n.y + NH / 2) + '" r="4" fill="' + nodeColor(a) + '"/>'
       + '<text x="' + (n.x + 30) + '" y="' + (n.y + 22) + '" fill="#ece9e2" font-size="12" font-weight="700">' + esc(a.name) + '</text>'
@@ -618,9 +685,7 @@ function openDiagram(sysName) {
       + '</g>'
   }
   svg += '</svg>'
-  document.getElementById('dg-title').textContent = 'system: ' + sysName
-  document.getElementById('dg-body').innerHTML = svg
-  document.getElementById('overlay').style.display = 'block'
+  return svg
 }
 
 
@@ -806,6 +871,99 @@ setInterval(() => {
   evtTimes = evtTimes.filter(t => now - t < 60_000)
   document.getElementById('deck-lcd').textContent = String(evtTimes.length).padStart(3, '0') + ' evt/min'
 }, 2000)
+
+
+// ── workbench (compiz cube face 2) ───────────────────────────────────────────
+let benchSys = null
+let benchSel = null
+function setHalfW() {
+  document.documentElement.style.setProperty('--halfw', (window.innerWidth / 2) + 'px')
+}
+function enterBench(sysName) {
+  benchSys = sysName
+  benchSel = null
+  benchRender()
+  setHalfW()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (reduced) {
+    document.body.classList.add('bench-static')
+    return
+  }
+  document.body.classList.add('bench-anim')
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.body.classList.add('bench-turned')
+    setTimeout(() => {
+      document.body.classList.remove('bench-anim', 'bench-turned')
+      document.body.classList.add('bench-static')
+    }, 640)
+  }))
+}
+function exitBench() {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (reduced) {
+    document.body.classList.remove('bench-static')
+    benchSys = null
+    return
+  }
+  document.body.classList.remove('bench-static')
+  document.body.classList.add('bench-anim', 'bench-turned')
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.body.classList.remove('bench-turned')
+    setTimeout(() => {
+      document.body.classList.remove('bench-anim')
+      benchSys = null
+    }, 640)
+  }))
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('bench-static')) exitBench()
+})
+function benchSelect(name) {
+  benchSel = name
+  benchRender()
+}
+function switchBench(name) {
+  benchSys = name
+  benchSel = null
+  benchRender()
+}
+function benchRender() {
+  if (!benchSys) return
+  const sys = systemsCache.find(s => s.name === benchSys)
+  if (!sys) return
+  document.getElementById('bench-title').textContent = 'workbench — ' + sys.name
+  document.getElementById('bench-switch').innerHTML = systemsCache.map(s2 =>
+    '<button class="' + (s2.name === benchSys ? 'active' : '') + '" onclick="switchBench(\\'' + s2.name + '\\')">' + esc(s2.name) + '</button>'
+  ).join('')
+  document.getElementById('bench-diagram').innerHTML = diagramSvg(sys, true)
+  const panel = document.getElementById('bench-panel')
+  const a = benchSel ? appsCache.find(x => x.name === benchSel) : null
+  if (!a) {
+    panel.innerHTML = '<div class="bench-hint">click a node to work on it</div>'
+    return
+  }
+  const rpm = a.reqPerMin ?? 0
+  const wires = Object.entries(sys.wires ?? {}).filter(([k, v]) =>
+    k.startsWith(a.name + '.') || new RegExp('//' + a.name + '([:/]|$)').test(v))
+  panel.innerHTML =
+    '<div class="pname">' + esc(a.name) + '</div>'
+    + '<div class="pstate">' + a.state + ' - ' + a.manifest.type + (a.manifest.public === false ? ' - private' : '') + ' - ' + rpm + ' req/min</div>'
+    + '<div class="prow">'
+    +   '<button onclick="act(\\'' + a.name + '\\',\\'deploy\\')">deploy</button>'
+    +   (a.state === 'running'
+          ? '<button class="warn" onclick="act(\\'' + a.name + '\\',\\'stop\\')">stop</button>'
+          : '<button onclick="act(\\'' + a.name + '\\',\\'start\\')">start</button>')
+    +   '<button onclick="showLogs(\\'' + a.name + '\\')">logs</button>'
+    +   (a.manifest.public === false ? ''
+        : a.exposed
+          ? '<button class="warn" onclick="act(\\'' + a.name + '\\',\\'hide\\')">hide</button>'
+          : '<button class="hot" onclick="act(\\'' + a.name + '\\',\\'expose\\')">expose</button>')
+    + '</div>'
+    + '<div class="board">' + boardHtml(a) + '</div>'
+    + (wires.length
+        ? '<div class="pwires">' + wires.map(([k, v]) => '<div class="w"><b>' + esc(k) + '</b><span>' + esc(v) + '</span></div>').join('') + '</div>'
+        : '')
+}
 
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString()
