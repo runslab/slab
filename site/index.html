@@ -6,237 +6,371 @@
 <title>slab — the localhost hyperscaler</title>
 <meta name="description" content="Your machines, run like a cloud: containers, ingress, Postgres, secrets, tunnels, jobs, and multi-node systems — one daemon, zero cloud accounts.">
 <link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><polygon points="16,4 30,11 16,18 2,11" fill="%23d6d3cb"/><polygon points="2,11 16,18 16,28 2,21" fill="%2398958d"/><polygon points="30,11 16,18 16,28 30,21" fill="%2368655e"/><circle cx="24.5" cy="18.5" r="3.4" fill="%23ffb454" opacity=".35"/><circle cx="24.5" cy="18.5" r="1.9" fill="%23ffb454"/></svg>'>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&display=swap" rel="stylesheet">
 <style>
+  /* palette: the machine room + the pour
+     ink #131418 · faceplate #202127→#15161b · amber #ffb454 (power)
+     concrete #cfccc4 / #9b9890 / #6e6b66 · led green #71d68d / blue #82b8e8 / red #f07f78 */
   :root {
-    --bg: #131418; --text: #ece9e2; --dim: #9a9da5; --faint: #5f626a;
-    --accent: #ffb454; --green: #71d68d; --red: #f07f78; --blue: #82b8e8;
-    --unit1: #202127; --unit2: #17181d; --unit3: #101116; --unit4: #15161b;
-    --edge: #2b2d34; --line: #1c1e24; --well: #0b0c0e; --cheek: #241a12;
+    --ink: #131418; --rail: #0d0e11; --well: #0b0c0e;
+    --text: #ece9e2; --dim: #9a9da5; --faint: #5f626a;
+    --amber: #ffb454; --green: #71d68d; --blue: #82b8e8; --red: #f07f78;
+    --u1: #202127; --u2: #17181d; --u3: #101116; --u4: #15161b;
+    --edge: #2b2d34; --line: #1c1e24; --cheek: #241a12;
+    --con-hi: #cfccc4; --con-md: #9b9890; --con-lo: #6e6b66; --con-ink: #4a473f;
+    --disp: 'Big Shoulders Display', 'Arial Narrow', system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; margin: 0; }
   html { scroll-behavior: smooth; }
-  body {
-    font: 15px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    background:
-      radial-gradient(1100px 500px at 50% -10%, rgba(255,180,84,.06), transparent 60%),
-      var(--bg);
-    color: var(--text); min-height: 100vh;
-  }
+  body { font: 14px/1.6 var(--mono); background: var(--ink); color: var(--text); }
   a { color: var(--blue); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 40px); }
+  ::selection { background: var(--amber); color: var(--ink); }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 44px); }
 
-  nav { display: flex; align-items: center; gap: 14px; padding: 22px 0; }
-  nav svg { flex-shrink: 0; }
-  nav b { font-size: 15px; letter-spacing: .06em; }
-  nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 13px; }
+  /* ── nav: a thin steel rail ── */
+  nav { display: flex; align-items: center; gap: 12px; padding: 18px 0;
+    border-bottom: 1px solid var(--line); }
+  nav .mark { display: flex; align-items: center; gap: 10px; color: var(--text); }
+  nav .mark b { font-family: var(--disp); font-weight: 800; font-size: 20px; letter-spacing: .04em; }
+  nav .links { margin-left: auto; display: flex; gap: 20px; font-size: 12px; }
   nav .links a { color: var(--dim); }
-  nav .links a:hover { color: var(--accent); text-decoration: none; }
+  nav .links a:hover { color: var(--amber); text-decoration: none; }
 
-  header.hero { text-align: center; padding: 56px 0 30px; }
-  .hero h1 { font-size: clamp(30px, 6vw, 46px); letter-spacing: .02em; margin: 26px 0 6px; }
-  .hero .tag { font-size: 12px; letter-spacing: .32em; text-transform: uppercase; color: var(--accent); }
-  .hero p.lead { color: var(--dim); max-width: 620px; margin: 18px auto 0; }
-  .hero .sub { color: var(--faint); font-size: 12px; margin-top: 10px; letter-spacing: .08em; }
-
-  .install {
-    display: flex; align-items: center; gap: 0; max-width: 700px; margin: 30px auto 0;
-    background: var(--well); border: 1px solid var(--edge); border-radius: 8px;
-    box-shadow: inset 0 1px 6px rgba(0,0,0,.6);
-    overflow: hidden;
-  }
-  .install code { flex: 1; padding: 13px 16px; font-size: 12.5px; color: var(--text);
-    overflow-x: auto; white-space: nowrap; text-align: left; }
-  .install code i { color: var(--faint); font-style: normal; }
-  .install button {
-    font: inherit; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
-    background: rgba(255,180,84,.09); color: var(--accent); border: none;
-    border-left: 1px solid var(--edge); padding: 13px 18px; cursor: pointer; flex-shrink: 0;
-  }
+  /* ── hero: thesis left, a living cabinet right ── */
+  .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: clamp(28px, 5vw, 64px); align-items: center; padding: clamp(40px, 7vw, 84px) 0 30px; }
+  .eyebrow { color: var(--amber); font-size: 11px; letter-spacing: .34em; text-transform: uppercase; }
+  .hero h1 { font-family: var(--disp); font-weight: 800; line-height: .92;
+    font-size: clamp(64px, 11vw, 124px); letter-spacing: .01em; margin: 10px 0 4px;
+    color: var(--con-hi);
+    text-shadow: 0 1px 0 #efece5, 0 3px 0 #8f8c85, 0 5px 0 #6e6b64, 0 8px 18px rgba(0,0,0,.55); }
+  .hero .thesis { color: var(--dim); max-width: 46ch; margin-top: 18px; }
+  .hero .thesis b { color: var(--text); font-weight: 500; }
+  .install { display: flex; margin-top: 26px; background: var(--well);
+    border: 1px solid var(--edge); border-radius: 7px; overflow: hidden;
+    box-shadow: inset 0 1px 6px rgba(0,0,0,.6); }
+  .install code { flex: 1; padding: 12px 14px; font-size: 12px; white-space: nowrap; overflow-x: auto; }
+  .install button { font: inherit; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    background: rgba(255,180,84,.08); color: var(--amber); border: none; border-left: 1px solid var(--edge);
+    padding: 0 16px; cursor: pointer; }
   .install button:hover { background: rgba(255,180,84,.18); }
+  .after-install { color: var(--faint); font-size: 11px; margin-top: 10px; }
+  .after-install a { color: var(--dim); text-decoration: underline; text-decoration-color: var(--faint); }
+  .after-install a:hover { color: var(--amber); }
 
-  /* a living rack unit — the product's soul, in css */
-  .unitdemo {
-    max-width: 700px; margin: 44px auto 0; text-align: left;
-    display: grid; grid-template-columns: 26px auto 1fr auto; gap: 16px; align-items: center;
-    background: linear-gradient(180deg, var(--unit1) 0%, var(--unit2) 18%, var(--unit3) 60%, var(--unit4) 100%);
-    border: 1px solid var(--edge); border-radius: 8px; padding: 16px 22px;
-    box-shadow: -8px 0 0 0 var(--cheek), 8px 0 0 0 var(--cheek), inset 0 1px 0 rgba(255,255,255,.07), 0 6px 18px rgba(0,0,0,.45);
-  }
-  .pwr { width: 24px; height: 24px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #2e3138, #16171b 70%); border: 1px solid #3a3d45;
-    position: relative; box-shadow: inset 0 2px 3px rgba(0,0,0,.7); }
-  .pwr::after { content: ''; position: absolute; inset: 6px; border-radius: 50%;
-    background: var(--green); box-shadow: 0 0 9px var(--green); animation: breathe 2.8s ease-in-out infinite; }
+  /* ── the cabinet: the product, not a picture of it ── */
+  .cabinet { background: linear-gradient(180deg, #101114, #0c0d10);
+    border: 1px solid #0a0b0d; border-radius: 10px; position: relative;
+    box-shadow: -9px 0 0 0 var(--cheek), 9px 0 0 0 var(--cheek), 0 14px 44px rgba(0,0,0,.55);
+    margin: 0 9px; }
+  .vents { height: 44px; margin: 12px 16px 2px;
+    background:
+      repeating-linear-gradient(90deg, #030304 0 7px, transparent 7px 13px),
+      repeating-linear-gradient(0deg, #030304 0 11px, transparent 11px 16px);
+    -webkit-mask-image: linear-gradient(105deg, transparent 0 8%, #000 30% 55%, transparent 78%);
+    mask-image: linear-gradient(105deg, transparent 0 8%, #000 30% 55%, transparent 78%);
+    opacity: .9; }
+  .rack { background: var(--rail); border-top: 1px solid #0a0b0d; padding: 9px;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,.6); display: grid; gap: 9px; }
+  .unit { display: grid; grid-template-columns: 24px 22px 1fr auto; gap: 13px; align-items: center;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+      linear-gradient(180deg, var(--u1) 0%, var(--u2) 18%, var(--u3) 60%, var(--u4) 100%);
+    border: 1px solid var(--edge); border-radius: 7px; padding: 12px 16px 12px 10px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(0,0,0,.6); }
+  .unum { font-size: 8px; letter-spacing: .1em; color: var(--faint); writing-mode: vertical-rl;
+    justify-self: center; }
+  .pwr { width: 22px; height: 22px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #2e3138, #16171b 70%);
+    border: 1px solid #3a3d45; position: relative;
+    box-shadow: inset 0 2px 3px rgba(0,0,0,.7); }
+  .pwr::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: #33363e; }
+  .u-run .pwr::after { background: var(--green); box-shadow: 0 0 9px var(--green); animation: breathe 2.8s ease-in-out infinite; }
+  .u-sleep .pwr::after { background: var(--blue); box-shadow: 0 0 6px rgba(130,184,232,.5); }
+  .u-priv .pwr::after { background: var(--amber); box-shadow: 0 0 7px var(--amber); animation: breathe 4s ease-in-out infinite; }
   @keyframes breathe { 50% { opacity: .35; box-shadow: none; } }
-  .sled { display: flex; flex-direction: column-reverse; gap: 2px; background: var(--well);
-    border: 1px solid #26282e; border-radius: 3px; padding: 4px 3px; }
-  .sled i { width: 6px; height: 3px; border-radius: 1px; background: #23252a; }
-  .sled i.on { background: var(--green); box-shadow: 0 0 4px var(--green); }
-  .sled i:nth-child(6).on { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
-  .unitdemo .plate .name { font-size: 16px; font-weight: 800; }
-  .unitdemo .plate .name small { font-weight: 500; font-size: 10px; color: var(--faint); margin-left: 10px; letter-spacing: .12em; text-transform: uppercase; }
-  .unitdemo .plate .spec { color: var(--faint); font-size: 11px; margin-top: 2px; }
-  .lcd { background: #0a0b08; border: 1px solid #2a2c26; border-radius: 3px; padding: 2px 9px;
-    font-size: 10px; letter-spacing: .12em; color: var(--accent);
+  .plate .name { font-size: 15px; font-weight: 700; }
+  .plate .name small { font-weight: 400; font-size: 9.5px; color: var(--faint); margin-left: 9px;
+    letter-spacing: .14em; text-transform: uppercase; }
+  .u-run .plate .name small { color: var(--green); }
+  .u-sleep .plate .name small { color: var(--blue); }
+  .plate .spec { color: var(--faint); font-size: 10.5px; margin-top: 2px; }
+  .lcd { background: #0a0b08; border: 1px solid #2a2c26; border-radius: 3px; padding: 2px 8px;
+    font-size: 9.5px; letter-spacing: .1em; color: var(--amber);
     box-shadow: inset 0 1px 4px rgba(0,0,0,.85); text-shadow: 0 0 4px rgba(255,180,84,.6); }
-  .unitcap { text-align: center; color: var(--faint); font-size: 11px; margin-top: 14px; letter-spacing: .1em; }
-  @media (max-width: 640px) { .unitdemo { grid-template-columns: 26px auto 1fr; } .unitdemo .lcd { display: none; } }
-  @media (prefers-reduced-motion: reduce) { .pwr::after { animation: none; } }
+  .u-sleep .lcd { color: var(--faint); text-shadow: none; }
+  .cabmark { padding: 9px 16px 11px; font-size: 12px; letter-spacing: .06em; color: var(--amber); opacity: .85; }
+  .cabmark::after { content: '_'; animation: cursor 1.2s steps(1) infinite; }
+  .cabmark .chinfo { float: right; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  @keyframes cursor { 50% { opacity: 0; } }
+  .cabcap { text-align: center; color: var(--faint); font-size: 10.5px; margin-top: 14px; letter-spacing: .08em; }
+  .cabcap a { color: var(--dim); }
 
-  section { padding: 54px 0 0; }
-  section h2 { font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: var(--accent); margin-bottom: 22px; }
-  .verbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
-  .verb { background: linear-gradient(180deg, var(--unit2), var(--unit3)); border: 1px solid var(--edge); border-radius: 10px; padding: 18px 20px; }
-  .verb h3 { font-size: 15px; margin-bottom: 4px; }
-  .verb h3 b { color: var(--accent); }
-  .verb p { color: var(--dim); font-size: 12.5px; margin-bottom: 12px; }
-  .verb pre { background: var(--well); border: 1px solid var(--line); border-radius: 6px;
-    padding: 10px 12px; font-size: 11.5px; overflow-x: auto; color: var(--text); }
-  .verb pre i { color: var(--faint); font-style: normal; }
+  /* ── sections ── */
+  section { padding: clamp(48px, 8vw, 84px) 0 0; }
+  .sect-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 26px; }
+  .sect-head h2 { font-family: var(--disp); font-weight: 800; font-size: clamp(26px, 4vw, 38px);
+    letter-spacing: .02em; color: var(--text); }
+  .sect-head .rule { flex: 1; border-bottom: 1px solid var(--line); }
+  .sect-head .tag { color: var(--faint); font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-  .feat { border: 1px solid var(--line); border-radius: 8px; padding: 15px 17px; background: rgba(0,0,0,.14); }
-  .feat b { display: block; font-size: 13px; margin-bottom: 4px; }
-  .feat b i { font-style: normal; color: var(--accent); margin-right: 8px; }
-  .feat span { color: var(--dim); font-size: 12.5px; }
+  /* verbs: three rack units, each with its terminal chip */
+  .verbrack .unit { grid-template-columns: 24px 22px minmax(180px, 5fr) minmax(0, 7fr); align-items: center; }
+  .verbrack .name b { color: var(--amber); }
+  .verbrack pre { background: var(--well); border: 1px solid var(--line); border-radius: 5px;
+    padding: 10px 13px; font-size: 11.5px; line-height: 1.7; overflow-x: auto; margin: 0; }
+  .verbrack pre i { color: var(--faint); font-style: normal; }
+  .verbrack pre b { color: var(--green); font-weight: 400; }
+  @media (max-width: 760px) { .verbrack .unit { grid-template-columns: 24px 22px 1fr; }
+    .verbrack pre { grid-column: 1 / -1; } }
 
-  .tax { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
-  .tax .t { border: 1px dashed var(--edge); border-radius: 8px; padding: 14px 16px; }
-  .tax .t b { color: var(--accent); font-size: 13px; }
-  .tax .t p { color: var(--faint); font-size: 11.5px; margin-top: 4px; }
+  /* the spec sheet: dotted leaders, like the back page of the manual */
+  .specsheet { border: 1px solid var(--edge); border-radius: 9px; overflow: hidden;
+    background: linear-gradient(180deg, var(--u2), var(--u3)); }
+  .specsheet .shead { display: flex; justify-content: space-between; padding: 12px 20px;
+    border-bottom: 1px solid var(--edge); color: var(--faint); font-size: 10px;
+    letter-spacing: .22em; text-transform: uppercase; }
+  .specsheet .cols { column-count: 2; column-gap: 0; }
+  .srow { display: flex; align-items: baseline; padding: 11px 20px; break-inside: avoid;
+    border-bottom: 1px solid var(--line); }
+  .srow .k { color: var(--amber); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    white-space: nowrap; }
+  .srow .dots { flex: 1; min-width: 18px; margin: 0 10px;
+    border-bottom: 2px dotted #33363e; transform: translateY(-3px); }
+  .srow .v { color: var(--dim); font-size: 12px; text-align: right; max-width: 30ch; }
+  .srow .v code { color: var(--text); font-size: 11px; }
+  @media (max-width: 820px) { .specsheet .cols { column-count: 1; } .srow .v { max-width: 60ch; } }
 
-  .agents { border-left: 3px solid var(--accent); padding: 6px 0 6px 22px; max-width: 760px; }
-  .agents p { color: var(--dim); }
-  .agents p.thesis { color: var(--text); font-size: 17px; margin-bottom: 12px; }
-  .agents code { color: var(--accent); font-size: 13px; }
+  /* the pour: taxonomy as cast concrete plates */
+  .pour { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+  .cast { border-radius: 4px; padding: 18px 18px 16px; min-height: 118px;
+    background: linear-gradient(170deg, var(--con-hi), #b3b0a8 70%, #a5a29a);
+    box-shadow: inset 0 2px 0 rgba(255,255,255,.55), inset 0 -3px 6px rgba(0,0,0,.18), 0 6px 16px rgba(0,0,0,.4);
+    color: var(--con-ink); position: relative; overflow: hidden; }
+  .cast::before { content: ''; position: absolute; inset: 0; opacity: .5; pointer-events: none;
+    background-image: radial-gradient(rgba(0,0,0,.12) 1px, transparent 1.4px),
+      radial-gradient(rgba(255,255,255,.5) 1px, transparent 1.4px);
+    background-size: 46px 46px, 61px 61px; background-position: 7px 11px, 29px 37px; }
+  .cast.waffle { background-image:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.09) 0 2px, transparent 2px 26px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.09) 0 2px, transparent 2px 26px),
+      linear-gradient(170deg, var(--con-hi), #b3b0a8 70%, #a5a29a); }
+  .cast h3 { font-family: var(--disp); font-weight: 800; font-size: 24px; letter-spacing: .03em;
+    text-transform: uppercase; text-shadow: 0 1px 0 rgba(255,255,255,.55); }
+  .cast p { font-size: 11px; line-height: 1.55; margin-top: 6px; color: #5d5a52; }
+  .cast .stamp { position: absolute; right: 12px; bottom: 8px; font-size: 9px; letter-spacing: .18em;
+    color: #8a877f; text-transform: uppercase; }
+  .pour-note { color: var(--faint); font-size: 11px; margin-top: 14px; }
+  .pour-note code { color: var(--dim); }
 
-  footer { margin-top: 70px; border-top: 1px solid var(--line); padding: 26px 0 46px;
-    display: flex; flex-wrap: wrap; gap: 18px; color: var(--faint); font-size: 12px; align-items: baseline; }
-  footer .r { margin-left: auto; }
+  /* agents: a transcript, not a pitch */
+  .agents { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(24px, 4vw, 48px); align-items: start; }
+  .agents .thesis { font-family: var(--disp); font-weight: 600; font-size: clamp(22px, 3vw, 30px);
+    line-height: 1.15; color: var(--text); }
+  .agents .thesis em { color: var(--amber); font-style: normal; }
+  .agents .side p { color: var(--dim); font-size: 12.5px; margin-top: 14px; }
+  .term { background: var(--well); border: 1px solid var(--edge); border-radius: 9px; overflow: hidden; }
+  .term .bar { display: flex; gap: 6px; padding: 9px 13px; border-bottom: 1px solid var(--line); }
+  .term .bar i { width: 9px; height: 9px; border-radius: 50%; background: #2b2d34; }
+  .term .bar i:first-child { background: var(--red); opacity: .7; }
+  .term .bar span { margin-left: auto; color: var(--faint); font-size: 10px; letter-spacing: .14em; }
+  .term pre { padding: 16px 18px; font-size: 11.5px; line-height: 1.85; overflow-x: auto; margin: 0; }
+  .term .p { color: var(--faint); }
+  .term .t { color: var(--blue); }
+  .term .o { color: var(--dim); }
+  .term .g { color: var(--green); }
+  .term .a { color: var(--amber); }
+  @media (max-width: 820px) { .agents { grid-template-columns: 1fr; } }
+
+  footer { margin-top: clamp(56px, 8vw, 90px); border-top: 1px solid var(--line);
+    padding: 24px 0 48px; display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline;
+    color: var(--faint); font-size: 11.5px; }
+  footer .r { margin-left: auto; display: flex; gap: 16px; }
   footer a { color: var(--dim); }
+
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } .hero h1 { font-size: clamp(72px, 17vw, 110px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .pwr::after, .cabmark::after { animation: none !important; }
+  }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <nav>
-  <svg width="34" height="27" viewBox="0 0 240 190" aria-hidden="true">
-    <polygon points="120,26 224,78 120,130 16,78" fill="#cfccc4"/>
-    <polygon points="16,78 120,130 120,164 16,112" fill="#9b9890"/>
-    <polygon points="224,78 120,130 120,164 224,112" fill="#7a776f"/>
-    <circle cx="198" cy="106" r="9" fill="#ffb454" opacity=".22"/><circle cx="198" cy="106" r="4" fill="#ffb454"/>
-  </svg>
-  <b>slab</b>
+  <a class="mark" href="#">
+    <svg width="30" height="24" viewBox="0 0 240 190" aria-hidden="true">
+      <polygon points="120,26 224,78 120,130 16,78" fill="#cfccc4"/>
+      <polygon points="16,78 120,130 120,164 16,112" fill="#9b9890"/>
+      <polygon points="224,78 120,130 120,164 224,112" fill="#7a776f"/>
+      <circle cx="198" cy="106" r="9" fill="#ffb454" opacity=".22"/><circle cx="198" cy="106" r="4" fill="#ffb454"/>
+    </svg>
+    <b>slab</b>
+  </a>
   <span class="links">
+    <a href="https://github.com/jasonmimick/slab/blob/master/docs/getting-started.md">get started</a>
     <a href="https://github.com/jasonmimick/slab/tree/master/docs">docs</a>
     <a href="https://github.com/jasonmimick/slab">github</a>
   </span>
 </nav>
 
 <header class="hero">
-  <svg width="190" height="150" viewBox="0 0 240 190" role="img" aria-label="a concrete slab — the foundation">
-    <ellipse cx="120" cy="158" rx="112" ry="22" fill="#000" opacity=".14"/>
-    <polygon points="120,26 224,78 120,130 16,78" fill="#cfccc4"/>
-    <polygon points="16,78 120,130 120,164 16,112" fill="#9b9890"/>
-    <polygon points="224,78 120,130 120,164 224,112" fill="#7a776f"/>
-    <polygon points="120,26 224,78 120,130 16,78" fill="none" stroke="#5f5c55" stroke-width="1.5" opacity=".55"/>
-    <g fill="#b7b4ac"><circle cx="92" cy="62" r="1.6"/><circle cx="141" cy="55" r="1.3"/><circle cx="172" cy="79" r="1.7"/><circle cx="118" cy="92" r="1.4"/><circle cx="66" cy="83" r="1.5"/><circle cx="150" cy="101" r="1.5"/></g>
-    <g fill="#e2dfd7"><circle cx="108" cy="49" r="1.3"/><circle cx="160" cy="68" r="1.4"/><circle cx="80" cy="95" r="1.3"/></g>
-    <path d="M44 74 l14 5 l-4 6 l16 6" fill="none" stroke="#8f8c84" stroke-width="1" opacity=".5" stroke-linecap="round"/>
-    <path d="M24 96 L112 140" stroke="#6e6b64" stroke-width="2.5" opacity=".65" stroke-linecap="round"/>
-    <path d="M24 104 L112 148" stroke="#6e6b64" stroke-width="2.5" opacity=".65" stroke-linecap="round"/>
-    <circle cx="198" cy="106" r="9" fill="#ffb454" opacity=".22"><animate attributeName="opacity" values=".22;.08;.22" dur="2.8s" repeatCount="indefinite"/></circle>
-    <circle cx="198" cy="106" r="4" fill="#ffb454"><animate attributeName="opacity" values="1;.55;1" dur="2.8s" repeatCount="indefinite"/></circle>
-  </svg>
-  <h1>slab</h1>
-  <div class="tag">the localhost hyperscaler</div>
-  <p class="lead">Your machines, run like a cloud: containers, HTTP ingress, Postgres,
-  secrets, public tunnels, one-shot jobs, and systems that span nodes —
-  driven by a CLI, a live hi-fi-rack dashboard, or AI agents speaking MCP.</p>
-  <p class="sub">one daemon per machine · zero cloud accounts · zero YAML</p>
-
-  <div class="install">
-    <code id="cmd">curl -fsSL https://raw.githubusercontent.com/jasonmimick/slab/master/install.sh | bash</code>
-    <button onclick="copyCmd(this)">copy</button>
-  </div>
-  <p class="sub">needs docker · node ≥ 20 · git — the installer checks and tells you exact fixes</p>
-  <p class="sub" style="margin-top:14px">or zero install: <a href="https://codespaces.new/jasonmimick/slab?quickstart=1">try slab in a github codespace →</a></p>
-
-  <div class="unitdemo" aria-hidden="true">
-    <div class="pwr"></div>
-    <div class="sled"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
-    <div class="plate">
-      <div class="name">your-app<small>running</small></div>
-      <div class="spec">service · dockerfile · v3 · deployed just now</div>
+  <div>
+    <div class="eyebrow">the localhost hyperscaler</div>
+    <h1>slab</h1>
+    <p class="thesis">Pour a foundation on the machines you already own.
+    One daemon gives you <b>containers, ingress, Postgres, secrets, public
+    tunnels, one-shot jobs</b> — and systems that span your laptop, the mac
+    mini in the closet, and a $5 VPS. No cloud account. No YAML.</p>
+    <div class="install">
+      <code id="cmd">curl -fsSL https://raw.githubusercontent.com/jasonmimick/slab/master/install.sh | bash</code>
+      <button onclick="copyCmd(this)" aria-label="copy install command">copy</button>
     </div>
-    <span class="lcd">042 req/min</span>
+    <p class="after-install">needs docker · node ≥ 20 · git — the installer checks, and tells you the exact fix ·
+    or <a href="https://codespaces.new/jasonmimick/slab?quickstart=1">try it in a codespace</a>, zero install</p>
   </div>
-  <div class="unitcap">every app is a rack unit on the dashboard — flip it open to see the board</div>
+
+  <div>
+    <div class="cabinet" role="img" aria-label="a slab rack cabinet with three apps: a running api, a sleeping function, and a private scoreboard">
+      <div class="vents"></div>
+      <div class="rack">
+        <div class="unit u-run">
+          <span class="unum">U01</span><span class="pwr"></span>
+          <div class="plate">
+            <div class="name">lake-api<small>running</small></div>
+            <div class="spec">service · dockerfile · v7 · deployed just now</div>
+          </div>
+          <span class="lcd">042 req/min</span>
+        </div>
+        <div class="unit u-sleep">
+          <span class="unum">U02</span><span class="pwr"></span>
+          <div class="plate">
+            <div class="name">feeder<small>sleeping</small></div>
+            <div class="spec">function · wakes on request · idle 15m</div>
+          </div>
+          <span class="lcd">zzz</span>
+        </div>
+        <div class="unit u-priv">
+          <span class="unum">U03</span><span class="pwr"></span>
+          <div class="plate">
+            <div class="name">scoreboard<small>private</small></div>
+            <div class="spec">no host port anywhere · system-only · on node: garage</div>
+          </div>
+          <span class="lcd">via trunk</span>
+        </div>
+      </div>
+      <div class="cabmark">arcade<span class="chinfo">waffle slab · 3 members · 2 wires</span></div>
+    </div>
+    <p class="cabcap">this is the dashboard's actual language — every app a rack unit,
+    flip one open for its board · <a href="https://github.com/jasonmimick/slab/blob/master/docs/skins.md">skinnable</a></p>
+  </div>
 </header>
 
 <section>
-  <h2>three verbs</h2>
-  <div class="verbs">
-    <div class="verb">
-      <h3><b>deploy</b> — apps</h3>
-      <p>Any repo with a Dockerfile, zero config. Services stay up; functions scale to zero and wake on request.</p>
-      <pre>slab deploy owner/repo
-<i>deployed repo -> http://repo.localhost:8080</i></pre>
+  <div class="sect-head"><h2>Three verbs</h2><span class="rule"></span><span class="tag">apps · jobs · systems</span></div>
+  <div class="cabinet verbrack">
+    <div class="rack">
+      <div class="unit u-run">
+        <span class="unum">U01</span><span class="pwr"></span>
+        <div class="plate">
+          <div class="name"><b>deploy</b><small>apps</small></div>
+          <div class="spec">any repo with a Dockerfile, zero config — services stay up, functions scale to zero</div>
+        </div>
+        <pre>$ slab deploy owner/repo
+<b>deployed repo -> http://repo.localhost:8080</b></pre>
+      </div>
+      <div class="unit u-run">
+        <span class="unum">U02</span><span class="pwr"></span>
+        <div class="plate">
+          <div class="name"><b>run</b><small>jobs</small></div>
+          <div class="spec">run to completion — exit code back, logs kept, timeout reaps runaways</div>
+        </div>
+        <pre>$ slab run . -- npm test
+<i>scheduling on garage (0 active jobs)</i>
+<b>test-a1b2 succeeded in 41s</b></pre>
+      </div>
+      <div class="unit u-priv">
+        <span class="unum">U03</span><span class="pwr"></span>
+        <div class="plate">
+          <div class="name"><b>up</b><small>systems</small></div>
+          <div class="spec">apps wired on a private network — private members get no host port at all</div>
+        </div>
+        <pre>$ slab up ./system.toml
+<i>  game       -> http://game.localhost:8080</i>
+<i>  scoreboard -> @ garage (via trunk)</i></pre>
+      </div>
     </div>
-    <div class="verb">
-      <h3><b>run</b> — jobs</h3>
-      <p>Run to completion: exit code back, logs kept, timeout guardrail. The sandbox for agent workflows.</p>
-      <pre>slab run . -- npm test
-slab run --node any repo -- make ci</pre>
-    </div>
-    <div class="verb">
-      <h3><b>up</b> — systems</h3>
-      <p>Apps wired on a private network. <code>public = false</code> members get no host port at all.</p>
-      <pre>slab up ./system.toml
-<i>scoreboard -> @ garage (via trunk)</i></pre>
+    <div class="cabmark">slab<span class="chinfo">one manifest · toml · git-trackable</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="sect-head"><h2>Specifications</h2><span class="rule"></span><span class="tag">what the daemon carries</span></div>
+  <div class="specsheet">
+    <div class="shead"><span>slab · model v0</span><span>continuous duty</span></div>
+    <div class="cols">
+      <div class="srow"><span class="k">ingress</span><span class="dots"></span><span class="v"><code>app.localhost:8080</code> host-header routing, wake-on-request</span></div>
+      <div class="srow"><span class="k">functions</span><span class="dots"></span><span class="v">scale to zero after idle, woken by the next request</span></div>
+      <div class="srow"><span class="k">postgres</span><span class="dots"></span><span class="v"><code>postgres = true</code> → DATABASE_URL appears, one db per app</span></div>
+      <div class="srow"><span class="k">secrets</span><span class="dots"></span><span class="v">outside the manifest, injected at deploy, names-only reads</span></div>
+      <div class="srow"><span class="k">tunnels</span><span class="dots"></span><span class="v"><code>slab expose</code> → public https, no account, no domain</span></div>
+      <div class="srow"><span class="k">wires</span><span class="dots"></span><span class="v">env bindings between members; patching redeploys the caller</span></div>
+      <div class="srow"><span class="k">trunks</span><span class="dots"></span><span class="v">systems span machines — private members included, byte-identical urls</span></div>
+      <div class="srow"><span class="k">cluster</span><span class="dots"></span><span class="v">named nodes, <code>--node garage</code> targeting, <code>--node any</code> scheduling</span></div>
+      <div class="srow"><span class="k">solar system</span><span class="dots"></span><span class="v">zoom out: every node a band, dead nodes shown honestly</span></div>
+      <div class="srow"><span class="k">zero manifest</span><span class="dots"></span><span class="v">no slab.toml? name from the repo, port from EXPOSE</span></div>
+      <div class="srow"><span class="k">skins</span><span class="dots"></span><span class="v">stereo rack · flat console · or one css file of your own</span></div>
+      <div class="srow"><span class="k">upgrades</span><span class="dots"></span><span class="v"><code>slab upgrade</code> — pull, rebuild, restart; state survives</span></div>
     </div>
   </div>
 </section>
 
 <section>
-  <h2>what's in the box</h2>
-  <div class="grid">
-    <div class="feat"><b><i>◉</i>zero-manifest deploys</b><span>name from the repo, port from the Dockerfile's EXPOSE. Paste a GitHub URL into the dashboard's empty bay.</span></div>
-    <div class="feat"><b><i>◐</i>functions</b><span>scale-to-zero with wake-on-request through the ingress. Idle apps cost nothing.</span></div>
-    <div class="feat"><b><i>⧉</i>systems + wires</b><span>private networks, env wiring, patch cables in the UI — wiring redeploys the caller automatically.</span></div>
-    <div class="feat"><b><i>◫</i>trunks</b><span>systems span machines: a per-system trunk carries <code>http://member:port</code> across nodes unchanged, private members included.</span></div>
-    <div class="feat"><b><i>☀</i>the solar system</b><span>zoom out and every node is a band — live status, dead nodes shown honestly. Any dashboard is a fleet console.</span></div>
-    <div class="feat"><b><i>⚖</i>cluster scheduling</b><span><code>slab --node garage deploy…</code> targets any peer; <code>run --node any</code> lands jobs on the idlest node.</span></div>
-    <div class="feat"><b><i>▤</i>skinnable dashboard</b><span>hi-fi stereo rack by default, flat hyperscaler console built-in, or drop one CSS file in ~/.slab/skins.</span></div>
-    <div class="feat"><b><i>⌁</i>tunnels, postgres, secrets</b><span><code>slab expose</code> = free public HTTPS. <code>postgres = true</code> = DATABASE_URL appears. Secrets stay out of manifests.</span></div>
+  <div class="sect-head"><h2>Choose your slab system</h2><span class="rule"></span><span class="tag">how a system carries load</span></div>
+  <div class="pour">
+    <div class="cast"><h3>Flat</h3><p>No wires. Members rest directly on the ingress — maximum clear ceiling height.</p><span class="stamp">no beams</span></div>
+    <div class="cast"><h3>One-way</h3><p>Load travels one direction. Pipelines, feeders, ingest chains.</p><span class="stamp">directed</span></div>
+    <div class="cast"><h3>Two-way</h3><p>Bending in all directions — members that call each other.</p><span class="stamp">mutual</span></div>
+    <div class="cast waffle"><h3>Waffle</h3><p>Spans machines. The trunks are the utilities concealed in the voids.</p><span class="stamp">multi-node</span></div>
   </div>
+  <p class="pour-note">the dashboard stamps every system's nameplate with its type — computed from the wire graph, not declared. <code>examples/</code> ships one of each.</p>
 </section>
 
 <section>
-  <h2>choose your slab system</h2>
-  <div class="tax">
-    <div class="t"><b>flat slab</b><p>no wires — members rest directly on the ingress. Maximum clear ceiling height.</p></div>
-    <div class="t"><b>one-way slab</b><p>loads travel one direction — pipelines and feeders.</p></div>
-    <div class="t"><b>two-way slab</b><p>bending in all directions — members that call each other.</p></div>
-    <div class="t"><b>waffle slab</b><p>spans machines; the trunks are the utilities concealed in the voids.</p></div>
-  </div>
-</section>
-
-<section>
-  <h2>built for agents</h2>
+  <div class="sect-head"><h2>Built for agents</h2><span class="rule"></span><span class="tag">mcp, first-class</span></div>
   <div class="agents">
-    <p class="thesis">Agents create infrastructure faster than humans can track it. The platform must make running things legible, bounded, and reversible.</p>
-    <p>slab ships an MCP server: an agent can take a repo to a running, routable app — or drop a sandbox job <em>inside a system's private network</em> to probe real members over real wiring — without ever learning Docker. Timeouts reap what nobody remembers. <code>slab_deploy · slab_run · slab_system_deploy · slab_logs · slab_expose …</code></p>
+    <div class="side">
+      <p class="thesis">Agents create infrastructure faster than humans can track it. The platform must make running things <em>legible, bounded, reversible.</em></p>
+      <p>slab ships an MCP server: an agent takes a repo to a running, routable
+      app — or drops a sandbox job inside a system's private network to probe
+      real members over real wiring — without ever learning Docker. Timeouts
+      reap what nobody remembers.</p>
+      <p><a href="https://github.com/jasonmimick/slab/blob/master/docs/agents.md">the tool surface →</a></p>
+    </div>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>agent session</span></div>
+      <pre><span class="p">›</span> <span class="t">slab_run</span> <span class="o">{ systems: ["arcade"], image: "alpine:3",</span>
+<span class="o">           command: ["wget","-qO-","http://scoreboard:4000/health"] }</span>
+<span class="g">{ state: "succeeded", exitCode: 0, logs: "ok" }</span>
+<span class="p">›</span> <span class="o">scoreboard is healthy — patching the ssl bug, redeploying…</span>
+<span class="p">›</span> <span class="t">slab_deploy</span> <span class="o">{ name: "scoreboard" }</span>
+<span class="g">{ state: "running", version: 8 }</span>
+<span class="p">›</span> <span class="a">system arcade repaired — probe rerun, all members answering</span></pre>
+    </div>
   </div>
 </section>
 
 <footer>
   <span>slab · v0 — weekend-spike maturity, honestly stated</span>
   <span class="r">
-    <a href="https://github.com/jasonmimick/slab">github</a> ·
-    <a href="https://github.com/jasonmimick/slab/tree/master/docs">docs</a> ·
-    <a href="https://github.com/jasonmimick/slab/blob/master/docs/getting-started.md">get started</a>
+    <a href="https://github.com/jasonmimick/slab">github</a>
+    <a href="https://github.com/jasonmimick/slab/tree/master/docs">docs</a>
+    <a href="https://jasonmimick.github.io/slab/">jasonmimick.github.io/slab</a>
   </span>
 </footer>
 
