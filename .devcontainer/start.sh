@@ -18,6 +18,11 @@ if ! slab list 2>/dev/null | grep -q hello-fn; then
   slab deploy "$PWD/examples/mario" >/dev/null 2>&1 || true
 fi
 
+# lifecycle hooks sometimes run without the codespace env — recover it from a login shell
+if [ -z "${CODESPACE_NAME:-}" ]; then
+  eval "$(bash -lc 'echo CODESPACE_NAME=${CODESPACE_NAME:-}; echo GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN=${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}' 2>/dev/null)" || true
+fi
+
 DASH="http://localhost:7766"
 if [ -n "${CODESPACE_NAME:-}" ] && [ -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}" ]; then
   DASH="https://${CODESPACE_NAME}-7766.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
