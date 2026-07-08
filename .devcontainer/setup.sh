@@ -16,4 +16,12 @@ if ! command -v cloudflared >/dev/null 2>&1; then
   sudo dpkg -i /tmp/cloudflared.deb >/dev/null || true
 fi
 
+# greet every terminal with the dashboard url (postStart output is buried in
+# the configuration log — the motd is what a demo user actually sees)
+MOTD_LINE="bash $PWD/.devcontainer/motd.sh"
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  touch "$rc"
+  grep -qF "devcontainer/motd.sh" "$rc" || printf '\n%s\n' "$MOTD_LINE" >> "$rc"
+done
+
 echo "── slab built. the daemon starts automatically (postStart)."
