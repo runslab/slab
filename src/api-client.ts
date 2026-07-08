@@ -4,8 +4,10 @@ import { AppRecord, DAEMON_PORT, JobRecord, PeerRecord, SystemRecord, TrunkConfi
 
 const BASE = process.env.SLAB_DAEMON_URL ?? `http://127.0.0.1:${DAEMON_PORT}`
 
-// Build a client bound to a daemon URL (+ its SLAB_TOKEN for non-loopback calls).
-export function clientFor(base: string, token?: string) {
+// Build a client bound to a daemon URL (+ its SLAB_TOKEN for non-loopback
+// calls). timeoutMs bounds each request — used for peer fan-out so one dead
+// node can't stall a fleet view; omit for normal ops (deploys take minutes).
+export function clientFor(base: string, token?: string, timeoutMs?: number) {
   async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
     let res: Response
     const headers: Record<string, string> = {}
@@ -16,6 +18,7 @@ export function clientFor(base: string, token?: string) {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
+        signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
       })
     } catch {
       throw new Error(`slab daemon not reachable at ${base} — start it with: slab daemon`)

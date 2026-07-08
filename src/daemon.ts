@@ -956,6 +956,28 @@ async function main(): Promise<void> {
     res.json({ node: name })
   }))
 
+  // The solar system: this node + every peer, one payload. Peer fan-out is
+  // bounded (3s each, parallel) and a dead node degrades to reachable:false
+  // instead of failing the view.
+  api.get('/v1/fleet', wrap(async (_req, res) => {
+    const local = {
+      name: state.nodeName, self: true, reachable: true, url: null as string | null, proxyPort: PROXY_PORT,
+      apps: Object.values(state.apps).map((a) => ({ ...a, reqPerMin: reqPerMin(a.name) })),
+      systems: Object.values(systems),
+      error: null as string | null,
+    }
+    const peerNodes = await Promise.all(Object.values(peers).map(async (p) => {
+      try {
+        const pc = clientFor(p.url, p.token, 3000)
+        const [ra, rs, h] = await Promise.all([pc.listApps(), pc.listSystems(), pc.health()])
+        return { name: h.node ?? p.name, self: false, reachable: true, url: p.url, proxyPort: h.proxyPort, apps: ra.apps, systems: rs.systems, error: null as string | null }
+      } catch (err) {
+        return { name: p.name, self: false, reachable: false, url: p.url, proxyPort: null, apps: [], systems: [], error: (err as Error).message }
+      }
+    }))
+    res.json({ nodes: [local, ...peerNodes] })
+  }))
+
   api.get('/v1/health', wrap(async (req, res) => {
     const payload = { status: 'ok', node: state.nodeName, apps: Object.keys(state.apps).length, proxyPort: PROXY_PORT }
     if ((req.headers.accept ?? '').includes('text/html')) {

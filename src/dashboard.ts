@@ -222,9 +222,28 @@ export function dashboardHtml(proxyPort: number): string {
   .ovbtn:hover, .ovbtn.on { color: var(--accent); border-color: var(--accent); }
   #overview { display: none; }
   body.overview #cabinets { display: none; }
-  body.overview #overview { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  body.overview #overview { display: block; }
   body.overview .deck { display: none; }
   body.overview .jobdeck { display: none; }
+  #overview .ovgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  /* solar system: one band per node — the sun badge glows if it answers */
+  .nodeband {
+    border: 1px solid var(--edge2); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px;
+    background: linear-gradient(180deg, var(--cab-hi), var(--cab-lo));
+  }
+  .nodeband.here { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge2)); }
+  .nodeband.down { opacity: .65; }
+  .sunbadge { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sunbadge .sun { width: 14px; height: 14px; border-radius: 50%; background: var(--od); flex-shrink: 0; }
+  .sunbadge .sun.up { background: var(--accent); box-shadow: 0 0 12px var(--accent), 0 0 28px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .nodeband.down .sun { background: var(--red); }
+  .sunbadge b { font-size: 14px; letter-spacing: .04em; }
+  .sunbadge .heretag { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 1px 7px; }
+  .sunbadge a { color: var(--blue); font-size: 11px; text-decoration: none; }
+  .sunbadge a:hover { text-decoration: underline; }
+  .sunbadge .nstats { margin-left: auto; font-size: 10px; color: var(--faint); letter-spacing: .08em; white-space: nowrap; }
+  .sunbadge .nerr { color: var(--red); font-size: 10px; letter-spacing: .08em; }
   .otile {
     background: linear-gradient(180deg, var(--unit1), var(--unit3)); border: 1px solid var(--edge2); border-radius: 10px;
     padding: 14px; cursor: pointer; position: relative; overflow: hidden;
@@ -1023,7 +1042,7 @@ async function load() {
   render()
   renderJobs()
   if (benchSys) benchRender()
-  if (overviewOn) renderOverview()
+  if (overviewOn) loadFleet()   // refreshes peers and re-renders the solar system
 }
 async function navStatus() {
   const r = await fetch('/v1/health')
@@ -1421,13 +1440,21 @@ function benchRender() {
 }
 
 
-// ── overview: zoom out to a tile per system (scales to a wall of racks) ───────
+// ── overview: zoom out to the solar system — every node, every system ─────────
 let overviewOn = false
+let fleetCache = null    // nodes from /v1/fleet (self + peers); null until first fetch
+async function loadFleet() {
+  try {
+    const r = await fetch('/v1/fleet')
+    fleetCache = (await r.json()).nodes ?? null
+  } catch (e) { fleetCache = null }
+  if (overviewOn) renderOverview()
+}
 function toggleOverview() {
   overviewOn = !overviewOn
   document.body.classList.toggle('overview', overviewOn)
   document.getElementById('ovbtn').classList.toggle('on', overviewOn)
-  if (overviewOn) renderOverview()
+  if (overviewOn) { renderOverview(); loadFleet() }
 }
 function flyTo(cabId) {
   overviewOn = false
@@ -1438,28 +1465,51 @@ function flyTo(cabId) {
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 900) }
   })
 }
-function tileHtml(title, cabId, apps, isSys) {
+function tileHtml(title, apps, tag, onclickJs, maxrpm) {
   const running = apps.filter(a => a.state === 'running').length
   const err = apps.some(a => a.state === 'error')
   const rpm = apps.reduce((n, a) => n + (a.reqPerMin ?? 0), 0)
-  const maxrpm = Math.max(1, ...appsCache.map(a => a.reqPerMin ?? 0))
   const dots = apps.map(a =>
     '<span class="od ' + a.state + (a.manifest.public === false ? ' priv' : '') + '" title="' + esc(a.name) + ' - ' + a.state + '"></span>'
   ).join('')
-  return '<div class="otile' + (err ? ' err' : '') + '" onclick="flyTo(\\'' + cabId + '\\')">'
+  return '<div class="otile' + (err ? ' err' : '') + '"' + (onclickJs ? ' onclick="' + onclickJs + '"' : '') + '>'
     + '<div class="oname">' + esc(title) + '</div>'
-    + '<div class="otag">' + (isSys ? 'system' : 'standalone') + ' - ' + running + '/' + apps.length + ' up</div>'
+    + '<div class="otag">' + tag + ' - ' + running + '/' + apps.length + ' up</div>'
     + '<div class="odots">' + dots + '</div>'
     + '<div class="ofoot"><span>' + rpm + ' req/min</span><span>' + apps.length + ' apps</span></div>'
-    + '<div class="obar" style="width:' + Math.round((rpm / (maxrpm * Math.max(1, apps.length))) * 100) + '%"></div>'
+    + '<div class="obar" style="width:' + Math.round((rpm / (Math.max(1, maxrpm) * Math.max(1, apps.length))) * 100) + '%"></div>'
     + '</div>'
 }
+// One band per node: its sun badge + a tile per system (+ standalone slab).
+// Local tiles fly into the rack; remote tiles open that node's dashboard.
+function nodeBand(node) {
+  const running = node.apps.filter(a => a.state === 'running').length
+  const rpm = node.apps.reduce((n, a) => n + (a.reqPerMin ?? 0), 0)
+  const maxrpm = Math.max(1, ...node.apps.map(a => a.reqPerMin ?? 0))
+  const openRemote = node.url ? "window.open('" + esc(node.url) + "')" : ''
+  const sorted = [...(node.systems ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+  const solo = node.apps.filter(a => !sorted.some(s => s.members.includes(a.name)))
+  let tiles = sorted.map(sys =>
+    tileHtml(sys.name, node.apps.filter(a => sys.members.includes(a.name)), 'system',
+      node.self ? "flyTo('cab-" + esc(sys.name) + "')" : openRemote, maxrpm)
+  ).join('')
+  if (solo.length) tiles += tileHtml('slab', solo, 'standalone', node.self ? "flyTo('cab-slab')" : openRemote, maxrpm)
+  if (!node.apps.length) tiles = '<div class="bench-hint">' + (node.reachable ? 'no apps' : esc(node.error ?? 'unreachable')) + '</div>'
+  return '<div class="nodeband' + (node.self ? ' here' : '') + (node.reachable ? '' : ' down') + '">'
+    + '<div class="sunbadge"><i class="sun' + (node.reachable ? ' up' : '') + '"></i><b>' + esc(node.name) + '</b>'
+    + (node.self ? '<span class="heretag">this node</span>'
+        : node.url ? '<a href="' + esc(node.url) + '" target="_blank">open &#8599;</a>' : '')
+    + (node.reachable ? '' : '<span class="nerr">unreachable</span>')
+    + '<span class="nstats">' + running + '/' + node.apps.length + ' up · ' + rpm + ' req/m</span>'
+    + '</div><div class="ovgrid">' + tiles + '</div></div>'
+}
 function renderOverview() {
-  const sorted = [...systemsCache].sort((a, b) => a.name.localeCompare(b.name))
-  const solo = appsCache.filter(a => !systemsCache.some(s => s.members.includes(a.name)))
-  let html = '<div class="ovhead"><h2>overview</h2><span>' + systemsCache.length + ' systems - ' + appsCache.length + ' apps - click a tile to fly in</span></div>'
-  html += sorted.map(sys => tileHtml(sys.name, 'cab-' + sys.name, appsCache.filter(a => sys.members.includes(a.name)), true)).join('')
-  if (solo.length) html += tileHtml('slab', 'cab-slab', solo, false)
+  // before the first fleet answer (or with no peers) fall back to local data
+  const nodes = fleetCache ?? [{ name: 'this node', self: true, reachable: true, url: null, apps: appsCache, systems: systemsCache }]
+  const totalApps = nodes.reduce((n, x) => n + x.apps.length, 0)
+  let html = '<div class="ovhead"><h2>solar system</h2><span>'
+    + nodes.length + ' node' + (nodes.length === 1 ? '' : 's') + ' · ' + totalApps + ' apps · click a tile to fly in</span></div>'
+  html += nodes.map(nodeBand).join('')
   document.getElementById('overview').innerHTML = html
 }
 

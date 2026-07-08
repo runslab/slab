@@ -110,6 +110,9 @@ export interface JobRecord {
 //   GET    /v1/health                   -> { status: 'ok', node: string, apps: number, proxyPort: number }
 //   PUT    /v1/node                     -> body { name } ; rename this daemon node -> { node }
 //
+//   GET    /v1/fleet                    -> { nodes: [{ name, self, reachable, url, proxyPort,
+//                                           apps, systems, error }] } — this node + every peer
+//                                           (bounded fan-out; dead peers degrade, never fail)
 //   GET    /v1/peers                    -> { peers: PeerRecord[] }
 //   PUT    /v1/peers/:name              -> body { url, token? } ; register/update a peer -> { peer }
 //   DELETE /v1/peers/:name              -> 204
