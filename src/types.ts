@@ -133,15 +133,11 @@ export interface JobRecord {
 
 // Env-configurable so several daemons ("nodes") can coexist — even on one
 // machine (pair with SLAB_DIR for separate state). Defaults match v0.
+// Bind/advertise/token live in ~/.slab/node.json (managed by `slab node
+// open|close|token`, env-overridable) — see NodeConfig in state.ts.
 export const DAEMON_PORT = Number(process.env.SLAB_PORT ?? 7766)
 export const PROXY_PORT = Number(process.env.SLAB_PROXY_PORT ?? 8080)
 export const HOST_PORT_BASE = 20000
-// Bind address for the API + ingress (default loopback-only). Non-loopback
-// callers must present Authorization: Bearer $SLAB_TOKEN.
-export const BIND_ADDR = process.env.SLAB_BIND ?? '127.0.0.1'
-// The address other nodes should use to reach this one (trunk dialing).
-// Same-machine testing: 127.0.0.1. Real cluster: your tailnet name/IP.
-export const ADVERTISE_ADDR = process.env.SLAB_ADVERTISE ?? '127.0.0.1'
 
 // ── Engine interface (implemented in engine.ts with dockerode) ───────────────
 export interface Engine {

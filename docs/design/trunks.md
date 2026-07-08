@@ -49,11 +49,24 @@ starts every node's trunk (**trunk-sync**) with the same map.
 
 ## node config
 
+The network posture is a persisted setting (`~/.slab/node.json`, chmod 600),
+managed by the CLI — each command restarts the daemon for you:
+
+```bash
+slab node open                 # bind 0.0.0.0 + generate a token; prints dashboard/peer lines
+slab node open --advertise garage.tailnet.ts.net   # what other nodes dial for trunks
+slab node token --rotate       # fresh token (re-run slab peer add on nodes that point here)
+slab node close                # back to loopback-only
+slab upgrade                   # git pull + rebuild + restart, config survives
+```
+
+Env vars override the file for one-off runs:
+
 | env | default | meaning |
 |---|---|---|
 | `SLAB_PORT` / `SLAB_PROXY_PORT` | 7766 / 8080 | api + ingress ports |
 | `SLAB_BIND` | 127.0.0.1 | bind address for api + ingress |
-| `SLAB_TOKEN` | — | required from non-loopback callers (`Authorization: Bearer`) |
+| `SLAB_TOKEN` | — | required from non-loopback callers (`Authorization: Bearer` or `?token=`) |
 | `SLAB_ADVERTISE` | 127.0.0.1 | address other nodes use to reach this one (tailnet name/IP) |
 | `SLAB_DIR` | ~/.slab | state dir (lets several daemons share a machine) |
 

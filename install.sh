@@ -98,8 +98,7 @@ esac
 if [ -n "${SLAB_NO_START-}" ]; then
   warn "SLAB_NO_START set — start it yourself:  node $SRC/dist/daemon.js"
 elif curl -fsS -m 2 http://127.0.0.1:7766/v1/health >/dev/null 2>&1; then
-  warn "a slab daemon is already running — restart it to pick up this version:"
-  say "      ${BOLD}pkill -f 'dist/daemon.js' && nohup node $SRC/dist/daemon.js > $SLAB_HOME/daemon.log 2>&1 &${RST}"
+  warn "a slab daemon is already running — pick up this version with:  ${BOLD}slab upgrade${RST}"
 else
   say "  ${DIM}starting the daemon…${RST}"
   nohup node "$SRC/dist/daemon.js" > "$SLAB_HOME/daemon.log" 2>&1 &

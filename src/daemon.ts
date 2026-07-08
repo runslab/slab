@@ -4,8 +4,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import express, { Request, Response, NextFunction } from 'express'
-import { AppRecord, Engine, JobRecord, Manifest, SystemManifest, SystemRecord, TrunkConfig, DAEMON_PORT, PROXY_PORT, BIND_ADDR, ADVERTISE_ADDR } from './types'
-import { loadState, saveState, allocateHostPort, getSecrets, setSecrets, deleteSecrets, slabDir } from './state'
+import { AppRecord, Engine, JobRecord, Manifest, SystemManifest, SystemRecord, TrunkConfig, DAEMON_PORT, PROXY_PORT } from './types'
+import { loadState, saveState, allocateHostPort, getSecrets, setSecrets, deleteSecrets, slabDir, effectiveNodeConfig } from './state'
 import { loadManifest, loadSystemManifest, parseDuration } from './manifest'
 import { createProxy } from './proxy'
 import { createEngine } from './engine'
@@ -119,6 +119,7 @@ function topoSortMembers(system: SystemRecord): string[] {
 }
 
 async function main(): Promise<void> {
+  const nodeCfg = effectiveNodeConfig()
   const state = loadState()
   state.systems ??= {}
   state.jobs ??= {}
@@ -417,7 +418,7 @@ async function main(): Promise<void> {
   // Cluster auth: loopback is always trusted (your own machine); anything
   // else must present this node's SLAB_TOKEN. With no token set, the daemon
   // is loopback-only in practice even when SLAB_BIND opens it up.
-  const AUTH_TOKEN = process.env.SLAB_TOKEN
+  const AUTH_TOKEN = nodeCfg.token
   api.use((req, res, next) => {
     const ip = req.socket.remoteAddress ?? ''
     const loopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
@@ -688,7 +689,7 @@ async function main(): Promise<void> {
       saveState(state)
 
       const trunkPeers: TrunkConfig['peers'] = {
-        [state.nodeName!]: { host: ADVERTISE_ADDR, port: system.trunkHostPort },
+        [state.nodeName!]: { host: nodeCfg.advertise, port: system.trunkHostPort },
       }
       for (const [peerName, r] of peerResults) {
         trunkPeers[peerName] = { host: hostOfUrl(peers[peerName].url), port: r.trunkPort }
@@ -1074,10 +1075,12 @@ async function main(): Promise<void> {
 
   startIdleReaper(state, engine)
 
-  api.listen(DAEMON_PORT, BIND_ADDR, () => {
-    proxyServer.listen(PROXY_PORT, BIND_ADDR, () => {
+  fs.writeFileSync(path.join(slabDir(), 'daemon.pid'), String(process.pid))
+
+  api.listen(DAEMON_PORT, nodeCfg.bind, () => {
+    proxyServer.listen(PROXY_PORT, nodeCfg.bind, () => {
       const appCount = Object.keys(state.apps).length
-      console.log(`slab daemon up — node:${state.nodeName} bind:${BIND_ADDR} api:${DAEMON_PORT} proxy:${PROXY_PORT} apps:${appCount}`)
+      console.log(`slab daemon up — node:${state.nodeName} bind:${nodeCfg.bind} api:${DAEMON_PORT} proxy:${PROXY_PORT} apps:${appCount}`)
     })
   })
 }

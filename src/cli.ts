@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
+import crypto from 'crypto'
+import { execSync, spawn } from 'child_process'
 import { Command } from 'commander'
 import { client, appUrl } from './api-client'
 import { loadManifest } from './manifest'
 import { looksLikeGitUrl } from './git'
-import { AppRecord, JobRecord, SystemRecord } from './types'
+import { slabDir, loadNodeConfigFile, saveNodeConfigFile } from './state'
+import { AppRecord, JobRecord, SystemRecord, DAEMON_PORT } from './types'
 
 function fail(err: unknown): never {
   const msg = err instanceof Error ? err.message : String(err)
@@ -427,17 +431,124 @@ peerCmd
     console.log(`removed peer ${name}`)
   }))
 
+// Restart the daemon this CLI belongs to: kill by pidfile (fallback: pkill),
+// relaunch dist/daemon.js detached with output to ~/.slab/daemon.log, wait
+// for health. Env (SLAB_DIR/SLAB_PORT/...) is inherited by the new daemon.
+async function restartDaemon(): Promise<void> {
+  const pidFile = path.join(slabDir(), 'daemon.pid')
+  let killed = false
+  try {
+    const pid = Number(fs.readFileSync(pidFile, 'utf-8').trim())
+    if (pid > 1) { process.kill(pid); killed = true }
+  } catch { /* no pidfile or already dead */ }
+  if (!killed) {
+    try { execSync("pkill -f 'dist/daemon.js'") } catch { /* none running */ }
+  }
+  await new Promise((r) => setTimeout(r, 800))
+  const out = fs.openSync(path.join(slabDir(), 'daemon.log'), 'a')
+  spawn(process.execPath, [path.join(__dirname, 'daemon.js')], {
+    detached: true,
+    stdio: ['ignore', out, out],
+  }).unref()
+  for (let i = 0; i < 40; i++) {
+    try { await client.health(); return } catch { await new Promise((r) => setTimeout(r, 500)) }
+  }
+  throw new Error(`daemon did not come back — check ${path.join(slabDir(), 'daemon.log')}`)
+}
+
 program
-  .command('node [name]')
-  .description("print or set this daemon node's name (a slab node is one machine running the daemon)")
+  .command('upgrade')
+  .description('update slab in place: git pull, rebuild, restart the daemon (config survives)')
+  .action(action(async () => {
+    const root = path.resolve(__dirname, '..')
+    if (!fs.existsSync(path.join(root, '.git'))) {
+      throw new Error(`${root} is not a git checkout — re-run the installer instead`)
+    }
+    const run = (cmd: string) => execSync(cmd, { cwd: root, stdio: 'inherit' })
+    console.log(`upgrading ${root}…`)
+    run('git pull --ff-only')
+    run('npm ci --silent --no-fund --no-audit')
+    run('npm run build --silent')
+    console.log('restarting daemon…')
+    await restartDaemon()
+    const sha = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim()
+    const { node, apps } = await client.health()
+    console.log(`upgraded to ${sha} — node "${node}" back up with ${apps} apps`)
+  }))
+
+const nodeCmd = program.command('node').description("this daemon's identity + network posture")
+
+nodeCmd
+  .command('name [name]', { isDefault: true })
+  .description("print or set this node's name")
   .action(action(async (name?: string) => {
     if (name) {
       const { node } = await client.setNode(name)
       console.log(`node is now "${node}"`)
     } else {
       const { node } = await client.health()
-      console.log(node ?? '(unnamed — set one with: slab node <name>)')
+      console.log(node ?? '(unnamed — set one with: slab node name <name>)')
     }
+  }))
+
+nodeCmd
+  .command('open')
+  .description('open this node to the network: bind 0.0.0.0 + auth token (persisted; restarts the daemon)')
+  .option('--token <token>', 'use a specific token instead of keeping/generating one')
+  .option('--rotate-token', 'generate a fresh token')
+  .option('--advertise <host>', 'address other nodes dial for trunks (tailnet name or LAN IP)')
+  .action(action(async (opts: { token?: string; rotateToken?: boolean; advertise?: string }) => {
+    const cfg = loadNodeConfigFile()
+    cfg.bind = '0.0.0.0'
+    if (opts.token) cfg.token = opts.token
+    else if (opts.rotateToken || !cfg.token) cfg.token = crypto.randomBytes(16).toString('hex')
+    if (opts.advertise) cfg.advertise = opts.advertise
+    saveNodeConfigFile(cfg)
+    await restartDaemon()
+    const host = os.hostname()
+    console.log(`node open on the network (bind 0.0.0.0)`)
+    console.log(`  dashboard: http://${host}:${DAEMON_PORT}/?token=${cfg.token}`)
+    console.log(`  peer it:   slab peer add <name> http://${host}:${DAEMON_PORT} --token ${cfg.token}`)
+    if (cfg.advertise) console.log(`  advertise: ${cfg.advertise}`)
+  }))
+
+nodeCmd
+  .command('close')
+  .description('back to loopback-only (persisted; restarts the daemon)')
+  .action(action(async () => {
+    const cfg = loadNodeConfigFile()
+    cfg.bind = '127.0.0.1'
+    saveNodeConfigFile(cfg)
+    await restartDaemon()
+    console.log('node closed — loopback only')
+  }))
+
+nodeCmd
+  .command('token')
+  .description('print the auth token (--rotate for a fresh one; restarts the daemon)')
+  .option('--rotate', 'generate a fresh token')
+  .action(action(async (opts: { rotate?: boolean }) => {
+    const cfg = loadNodeConfigFile()
+    if (opts.rotate) {
+      cfg.token = crypto.randomBytes(16).toString('hex')
+      saveNodeConfigFile(cfg)
+      await restartDaemon()
+      console.log(`rotated — new token: ${cfg.token}`)
+      console.log('update peers that point here: slab peer add <name> <url> --token <new>')
+    } else {
+      console.log(cfg.token ?? '(no token set — slab node open creates one)')
+    }
+  }))
+
+nodeCmd
+  .command('advertise <host>')
+  .description('set the address other nodes dial for trunks (persisted; restarts the daemon)')
+  .action(action(async (host: string) => {
+    const cfg = loadNodeConfigFile()
+    cfg.advertise = host
+    saveNodeConfigFile(cfg)
+    await restartDaemon()
+    console.log(`advertise -> ${host}`)
   }))
 
 program
