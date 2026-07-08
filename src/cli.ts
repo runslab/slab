@@ -264,6 +264,18 @@ system
   }))
 
 program
+  .command('play [seconds]')
+  .description('play the rack: rhythmic healthchecks across running apps (hear them on the dashboard)')
+  .action(action(async (seconds?: string) => {
+    const res = await fetch((process.env.SLAB_DAEMON_URL ?? 'http://127.0.0.1:7766') + '/v1/play', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds: Number(seconds ?? 45) }),
+    })
+    if (!res.ok) throw new Error('daemon refused: ' + res.status)
+    console.log('playing — open http://localhost:7766 and turn the listen knob')
+  }))
+
+program
   .command('status')
   .description('daemon status')
   .action(action(async () => {
