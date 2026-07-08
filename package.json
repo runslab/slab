@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/check-page.js",
     "dev": "tsx src/daemon.ts",
     "daemon": "node dist/daemon.js"
   },
