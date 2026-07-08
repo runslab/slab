@@ -78,11 +78,13 @@ v0, weekend-spike maturity. Known sharp edges, honestly stated:
 
 Rough order; nothing here is promised, everything here is intended.
 
-1. **Jobs — `slab run`** (v0.2 headline). A third app type beside service and
-   function: run-to-completion workloads. `slab run <git-url> -- npm test`,
-   and the agent version: a coding agent in an isolated container with the
-   workspace mounted, a budget cap, and results reported back through the
-   same API the dashboard reads. This is the sandbox / AI-coding-task story.
+1. **Jobs — `slab run`** ✅ SHIPPED. A third thing slab runs beside services
+   and functions: run-to-completion workloads. `slab run . -- npm test`
+   builds the Dockerfile and runs the command; `slab run . --image node:20
+   -- npm test` skips the build and mounts the source at `/workspace` in a
+   stock image. Timeout guardrail (default 30m), cancel, exit codes, logs,
+   job bench on the dashboard, `slab_run` MCP tool for agents. Next up in
+   this lane: the coding-agent job with a budget cap.
 2. **Overview / zoom-out mode** — a bird's-eye grid when there are many
    systems (imagine 1000 racks): each system a small tile, live status
    colors, click a tile to fly into that rack. The dashboard scales from

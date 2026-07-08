@@ -3,7 +3,7 @@
 import fs from 'fs'
 import path from 'path'
 import express, { Request, Response, NextFunction } from 'express'
-import { AppRecord, Engine, Manifest, SystemManifest, SystemRecord, DAEMON_PORT, PROXY_PORT } from './types'
+import { AppRecord, Engine, JobRecord, Manifest, SystemManifest, SystemRecord, DAEMON_PORT, PROXY_PORT } from './types'
 import { loadState, saveState, allocateHostPort, getSecrets, setSecrets, deleteSecrets } from './state'
 import { loadManifest, loadSystemManifest, parseDuration } from './manifest'
 import { createProxy } from './proxy'
@@ -14,6 +14,8 @@ import { cloneOrPull, normalizeGitUrl, repoDirName, looksLikeGitUrl } from './gi
 
 const IDLE_REAP_INTERVAL_MS = 30_000
 const LAST_REQUEST_SAVE_THROTTLE_MS = 5_000
+const JOB_HISTORY_MAX = 50            // finished jobs kept (older ones + their containers are pruned)
+const JOB_DEFAULT_TIMEOUT = '30m'
 
 class HttpError extends Error {
   status: number
@@ -36,6 +38,20 @@ function wrap(fn: AsyncHandler) {
 function nameParam(req: Request): string {
   const v = req.params.name
   return Array.isArray(v) ? v[0] : v
+}
+
+function idParam(req: Request): string {
+  const v = req.params.id
+  return Array.isArray(v) ? v[0] : v
+}
+
+const JOB_NAME_RE = /^[a-z][a-z0-9-]{1,30}$/
+function sanitizeJobName(raw: string): string {
+  let name = raw.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+  if (!/^[a-z]/.test(name)) name = `job-${name}`
+  name = name.slice(0, 31)
+  while (name.length < 2) name += '0'
+  return JOB_NAME_RE.test(name) ? name : 'job'
 }
 
 // A wire value "mentions" a member when the member name appears as a
@@ -97,7 +113,9 @@ function topoSortMembers(system: SystemRecord): string[] {
 async function main(): Promise<void> {
   const state = loadState()
   state.systems ??= {}
+  state.jobs ??= {}
   const systems = state.systems // non-optional local alias, safe to use inside closures/handlers
+  const jobs = state.jobs
   const engine: Engine = createEngine()
 
   await reconcile(state, engine)
@@ -250,6 +268,109 @@ async function main(): Promise<void> {
       throw err
     }
   }
+
+  // ── jobs: run-to-completion workloads ─────────────────────────────────────
+
+  function getJobOr404(id: string): JobRecord {
+    const job = jobs[id]
+    if (!job) throw new HttpError(404, `unknown job "${id}"`)
+    return job
+  }
+
+  const canceledJobs = new Set<string>()
+
+  function newJobId(name: string): string {
+    let suffix = Date.now().toString(36).slice(-4)
+    while (jobs[`${name}-${suffix}`]) suffix = Math.random().toString(36).slice(2, 6)
+    return `${name}-${suffix}`
+  }
+
+  // Wait for a started job's container to exit, enforcing the timeout.
+  // Also used at boot to re-attach to jobs the previous daemon left running.
+  async function finishJob(job: JobRecord): Promise<void> {
+    const startedMs = job.startedAt ? new Date(job.startedAt).getTime() : Date.now()
+    const remaining = Math.max(1000, startedMs + parseDuration(job.timeout) - Date.now())
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      engine.stopJob(job).catch((err) => console.error(`job ${job.id}: timeout stop failed: ${(err as Error).message}`))
+    }, remaining)
+    try {
+      job.exitCode = await engine.waitJob(job.containerId!)
+      job.state = canceledJobs.has(job.id) ? 'canceled'
+        : timedOut ? 'failed'
+        : job.exitCode === 0 ? 'succeeded' : 'failed'
+      if (timedOut) job.error = `timed out after ${job.timeout}`
+    } finally {
+      clearTimeout(timer)
+      canceledJobs.delete(job.id)
+    }
+    job.finishedAt = new Date().toISOString()
+    saveState(state)
+    broadcast({ type: 'job', job: job.id, state: job.state })
+  }
+
+  // Full lifecycle: build (or pull) -> run -> wait. Fired async by POST
+  // /v1/jobs; all failures land on the record, never on the HTTP response.
+  async function executeJob(job: JobRecord): Promise<void> {
+    try {
+      job.state = 'building'
+      saveState(state)
+      broadcast({ type: 'job', job: job.id, state: 'building' })
+      const imageTag = await engine.buildJobImage(job)
+      if (canceledJobs.has(job.id)) {
+        canceledJobs.delete(job.id)
+        job.state = 'canceled'
+        job.finishedAt = new Date().toISOString()
+        saveState(state)
+        return
+      }
+      job.containerId = await engine.runJob(job, imageTag)
+      job.state = 'running'
+      job.startedAt = new Date().toISOString()
+      saveState(state)
+      broadcast({ type: 'job', job: job.id, state: 'running' })
+      await finishJob(job)
+    } catch (err) {
+      job.state = 'failed'
+      job.error = (err as Error).message
+      job.finishedAt = new Date().toISOString()
+      saveState(state)
+      broadcast({ type: 'job', job: job.id, state: 'failed' })
+    }
+  }
+
+  // Keep job history bounded: drop the oldest finished records (and their
+  // containers, best-effort) beyond JOB_HISTORY_MAX.
+  function pruneJobs(): void {
+    const finished = Object.values(jobs)
+      .filter((j) => j.state === 'succeeded' || j.state === 'failed' || j.state === 'canceled')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    for (const old of finished.slice(JOB_HISTORY_MAX)) {
+      engine.removeJob(old).catch(() => { /* container may already be gone */ })
+      delete jobs[old.id]
+    }
+  }
+
+  // Boot reconcile: re-attach to jobs the previous daemon left in flight.
+  // A running container is awaited (even if it exited while we were down,
+  // docker wait returns its code immediately); anything else is failed.
+  for (const job of Object.values(jobs)) {
+    if (job.state !== 'queued' && job.state !== 'building' && job.state !== 'running') continue
+    if (job.state === 'running' && job.containerId) {
+      finishJob(job).catch((err) => {
+        job.state = 'failed'
+        job.error = `lost after daemon restart: ${(err as Error).message}`
+        job.finishedAt = new Date().toISOString()
+        saveState(state)
+      })
+    } else {
+      job.state = 'failed'
+      job.error = 'interrupted by daemon restart'
+      job.finishedAt = new Date().toISOString()
+    }
+  }
+  saveState(state)
 
   const api = express()
   api.use(express.json())
@@ -437,6 +558,110 @@ async function main(): Promise<void> {
     // per its contract (engine.ts) before removing the network itself.
     await engine.removeNetwork('slab-net-' + system.name)
     delete systems[system.name]
+    saveState(state)
+    res.status(204).end()
+  }))
+
+  api.get('/v1/jobs', wrap(async (req, res) => {
+    const payload = { jobs: Object.values(jobs).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }
+    if ((req.headers.accept ?? '').includes('text/html')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.send(apiHumanHtml('/v1/jobs', payload))
+      return
+    }
+    res.json(payload)
+  }))
+
+  api.post('/v1/jobs', wrap(async (req, res) => {
+    const body = req.body ?? {}
+    const image = typeof body.image === 'string' && body.image ? body.image : null
+    const command: string[] = Array.isArray(body.command) ? body.command.map(String) : []
+    const env: Record<string, string> =
+      typeof body.env === 'object' && body.env !== null && !Array.isArray(body.env)
+        ? Object.fromEntries(Object.entries(body.env as Record<string, unknown>).map(([k, v]) => [k, String(v)]))
+        : {}
+    const timeout = body.timeout != null ? String(body.timeout) : JOB_DEFAULT_TIMEOUT
+    if (!/^\d+(s|m|h)$/.test(timeout)) {
+      throw new HttpError(400, `invalid timeout "${timeout}" — use e.g. "90s", "10m", "1h"`)
+    }
+
+    let sourceDir: string | null = null
+    let gitUrl: string | null = null
+    const sourceInput = typeof body.gitUrl === 'string' && body.gitUrl ? body.gitUrl
+      : typeof body.sourceDir === 'string' && body.sourceDir ? body.sourceDir : null
+    if (sourceInput) {
+      if (!body.gitUrl && !path.isAbsolute(sourceInput)) {
+        throw new HttpError(400, 'sourceDir must be an absolute path')
+      }
+      const resolved = await resolveSource(sourceInput, process.cwd())
+      sourceDir = resolved.sourceDir
+      gitUrl = resolved.gitUrl
+    }
+    if (!sourceDir && !image) {
+      throw new HttpError(400, 'body must include { sourceDir } or { gitUrl } (a Dockerfile to build) and/or { image } (a stock image; source is mounted at /workspace)')
+    }
+    if (sourceDir && !image && !fs.existsSync(path.join(sourceDir, 'Dockerfile'))) {
+      throw new HttpError(400, `${sourceDir} has no Dockerfile — pass { image } to run the source in a stock image instead`)
+    }
+    if (!sourceDir && command.length === 0) {
+      throw new HttpError(400, 'a bare image job needs a { command } to run')
+    }
+
+    const name = sanitizeJobName(
+      typeof body.name === 'string' && body.name ? body.name
+        : sourceDir ? path.basename(sourceDir)
+        : image!.split('/').pop()!.split(':')[0],
+    )
+    const job: JobRecord = {
+      id: newJobId(name),
+      name,
+      sourceDir,
+      gitUrl,
+      image,
+      command,
+      env,
+      timeout,
+      state: 'queued',
+      exitCode: null,
+      containerId: null,
+      error: null,
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      finishedAt: null,
+    }
+    jobs[job.id] = job
+    pruneJobs()
+    saveState(state)
+    void executeJob(job)
+    res.status(201).json({ job })
+  }))
+
+  api.get('/v1/jobs/:id', wrap(async (req, res) => {
+    res.json({ job: getJobOr404(idParam(req)) })
+  }))
+
+  api.get('/v1/jobs/:id/logs', wrap(async (req, res) => {
+    const job = getJobOr404(idParam(req))
+    const logs = await engine.getJobLogs(job, parseTail(req.query.tail))
+    res.json({ logs })
+  }))
+
+  api.post('/v1/jobs/:id/cancel', wrap(async (req, res) => {
+    const job = getJobOr404(idParam(req))
+    if (job.state !== 'queued' && job.state !== 'building' && job.state !== 'running') {
+      throw new HttpError(409, `job "${job.id}" already finished (${job.state})`)
+    }
+    canceledJobs.add(job.id)
+    if (job.state === 'running') await engine.stopJob(job)   // finishJob's wait resolves and marks it canceled
+    res.json({ job })
+  }))
+
+  api.delete('/v1/jobs/:id', wrap(async (req, res) => {
+    const job = getJobOr404(idParam(req))
+    canceledJobs.add(job.id)
+    await engine.removeJob(job)
+    canceledJobs.delete(job.id)
+    delete jobs[job.id]
     saveState(state)
     res.status(204).end()
   }))

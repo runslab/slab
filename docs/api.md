@@ -121,6 +121,64 @@ Close the tunnel.
   `exposed: false`.
 - Errors: `404` if unknown.
 
+## jobs
+
+Run-to-completion workloads (`slab run`): build (or pull) an image, run one
+command, capture the exit code, keep the logs. No ports, no ingress, no
+restart. Two modes:
+
+- **Dockerfile mode** — `sourceDir`/`gitUrl` points at a directory with a
+  `Dockerfile`; it is built and `command` runs in the built image.
+- **image mode** — `image` names a stock image (e.g. `node:20`); it is
+  pulled and the source directory (if any) is bind-mounted read-write at
+  `/workspace`, which becomes the working directory.
+
+Finished job history is capped at 50; older records and their containers
+are pruned automatically.
+
+### `GET /v1/jobs`
+
+- Response `200`: `{ "jobs": JobRecord[] }`, newest first.
+
+### `POST /v1/jobs`
+
+Create a job and start it **asynchronously** — the response returns
+immediately with the record in state `"queued"`; poll `GET /v1/jobs/:id`
+for progress (`queued → building → running → succeeded|failed|canceled`).
+
+- Body: `{ "sourceDir"?, "gitUrl"?, "image"?, "command"?: string[],
+  "env"?: Record<string,string>, "name"?, "timeout"? }` — at least one of
+  `sourceDir`/`gitUrl`/`image`. `timeout` is `"90s" | "10m" | "1h"`-style,
+  default `30m`; the daemon kills the container when it expires.
+- Response `201`: `{ "job": JobRecord }`.
+- Errors: `400` on a malformed body, an unresolvable source, a missing
+  Dockerfile (without `image`), or a bare `image` job with no `command`.
+
+### `GET /v1/jobs/:id`
+
+- Response `200`: `{ "job": JobRecord }` — `exitCode` is set once the
+  container exits; `error` carries build failures / timeout messages.
+- Errors: `404` if unknown.
+
+### `GET /v1/jobs/:id/logs?tail=100`
+
+- Response `200`: `{ "logs": string }` (stdout + stderr). Logs survive
+  completion — the container is kept until the job is deleted or pruned.
+
+### `POST /v1/jobs/:id/cancel`
+
+Stop a queued/building/running job; it finishes in state `"canceled"`.
+
+- Response `200`: `{ "job": JobRecord }`.
+- Errors: `404` if unknown; `409` if the job already finished.
+
+### `DELETE /v1/jobs/:id`
+
+Remove the job's container and record.
+
+- Response: `204`, empty body.
+- Errors: `404` if unknown.
+
 ### `GET /v1/health`
 
 - Response `200`: `{ "status": "ok", "apps": number, "proxyPort": number }`.

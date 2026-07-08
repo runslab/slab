@@ -5,7 +5,7 @@ import { Command } from 'commander'
 import { client, appUrl } from './api-client'
 import { loadManifest } from './manifest'
 import { looksLikeGitUrl } from './git'
-import { AppRecord, SystemRecord } from './types'
+import { AppRecord, JobRecord, SystemRecord } from './types'
 
 function fail(err: unknown): never {
   const msg = err instanceof Error ? err.message : String(err)
@@ -126,6 +126,120 @@ program
       console.log(`  ${name} -> ${loc}`)
     }
     console.log(`system ${deployed.name} up (${deployed.members.length} apps)`)
+  }))
+
+function jobRuntime(job: JobRecord): string {
+  if (!job.startedAt) return '-'
+  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now()
+  const sec = Math.max(0, Math.round((end - new Date(job.startedAt).getTime()) / 1000))
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60 ? String(sec % 60) + 's' : ''}`
+}
+
+const JOB_DONE = new Set(['succeeded', 'failed', 'canceled'])
+
+program
+  .command('run [source] [cmd...]')
+  .description('run a job to completion: slab run . -- npm test (build the Dockerfile, or --image for a stock toolchain with the source mounted at /workspace)')
+  .option('-i, --image <image>', 'run in a stock image instead of building; source is mounted at /workspace')
+  .option('-e, --env <KEY=VALUE>', 'env var for the job (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+  .option('-t, --timeout <duration>', 'kill the job after this long (e.g. 90s, 10m, 1h)', '30m')
+  .option('-d, --detach', 'start the job and return immediately (follow with: slab job logs <id>)')
+  .option('--name <name>', 'job name (default: source dir basename)')
+  .action(action(async (source: string | undefined, cmd: string[], opts: { image?: string; env: string[]; timeout: string; detach?: boolean; name?: string }) => {
+    // `slab run -- npm test` puts "npm" in [source]; if the arg is neither a
+    // directory nor a git url, treat it as the first command word (cwd source).
+    let src = source ?? process.cwd()
+    if (source && !isDir(path.resolve(source)) && !looksLikeGitUrl(source)) {
+      cmd = [source, ...cmd]
+      src = process.cwd()
+    }
+    const env: Record<string, string> = {}
+    for (const pair of opts.env) {
+      const i = pair.indexOf('=')
+      if (i <= 0) throw new Error(`malformed KEY=VALUE pair: "${pair}"`)
+      env[pair.slice(0, i)] = pair.slice(i + 1)
+    }
+    const spec = {
+      ...(looksLikeGitUrl(src) && !isDir(path.resolve(src)) ? { gitUrl: src } : { sourceDir: path.resolve(src) }),
+      ...(opts.image ? { image: opts.image } : {}),
+      ...(opts.name ? { name: opts.name } : {}),
+      command: cmd,
+      env,
+      timeout: opts.timeout,
+    }
+    let { job } = await client.createJob(spec)
+    console.log(`job ${job.id} — ${job.image ?? 'dockerfile build'}${cmd.length ? ' — ' + cmd.join(' ') : ''}`)
+    if (opts.detach) return
+
+    process.on('SIGINT', async () => {
+      console.error(`\ncanceling ${job.id}…`)
+      await client.cancelJob(job.id).catch(() => { /* may already be done */ })
+      process.exit(130)
+    })
+    let lastState = job.state
+    while (!JOB_DONE.has(job.state)) {
+      await new Promise((r) => setTimeout(r, 1000))
+      job = (await client.getJob(job.id)).job
+      if (job.state !== lastState) {
+        console.log(`  ${job.state}`)
+        lastState = job.state
+      }
+    }
+    const { logs } = await client.jobLogs(job.id, 1000)
+    if (logs.trim()) console.log('\n' + logs.trimEnd())
+    if (job.state === 'succeeded') {
+      console.log(`\n${job.id} succeeded in ${jobRuntime(job)}`)
+    } else {
+      console.error(`\n${job.id} ${job.state}${job.exitCode != null ? ` (exit ${job.exitCode})` : ''}${job.error ? ` — ${job.error}` : ''}`)
+    }
+    process.exit(job.exitCode ?? (job.state === 'succeeded' ? 0 : 1))
+  }))
+
+program
+  .command('jobs')
+  .description('list jobs (newest first)')
+  .action(action(async () => {
+    const { jobs } = await client.listJobs()
+    const header = ['ID', 'STATE', 'EXIT', 'RUNTIME', 'COMMAND', 'CREATED']
+    const cols = jobs.map((j) => [
+      j.id,
+      j.state,
+      j.exitCode == null ? '-' : String(j.exitCode),
+      jobRuntime(j),
+      (j.command.join(' ') || '(image default)').slice(0, 40),
+      relativeTime(j.createdAt),
+    ])
+    const widths = header.map((h, i) => Math.max(h.length, ...cols.map((r) => r[i].length), 0))
+    const line = (r: string[]) => r.map((c, i) => c.padEnd(widths[i] + 2)).join('').trimEnd()
+    console.log(line(header))
+    for (const r of cols) console.log(line(r))
+  }))
+
+const job = program.command('job').description('manage jobs')
+
+job
+  .command('logs <id>')
+  .description('print job logs')
+  .option('-n, --tail <n>', 'number of lines', '100')
+  .action(action(async (id: string, opts: { tail: string }) => {
+    const { logs } = await client.jobLogs(id, Number(opts.tail))
+    console.log(logs)
+  }))
+
+job
+  .command('cancel <id>')
+  .description('cancel a queued/running job')
+  .action(action(async (id: string) => {
+    await client.cancelJob(id)
+    console.log(`canceling ${id}`)
+  }))
+
+job
+  .command('rm <id>')
+  .description('remove a job (container + record)')
+  .action(action(async (id: string) => {
+    await client.removeJob(id)
+    console.log(`removed ${id}`)
   }))
 
 program

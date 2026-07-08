@@ -289,6 +289,61 @@ async function main() {
   )
 
   server.registerTool(
+    'slab_run',
+    {
+      description:
+        'Run a job to completion in an isolated container and return its exit code and logs. Two modes: (1) sourceDir/gitUrl with a Dockerfile — the image is built and the command runs inside it; (2) image — a stock image (e.g. node:20) is pulled and the source directory is mounted read-write at /workspace. Use for tests, builds, scripts, one-off tasks. Blocks until the job finishes (or `wait` seconds elapse — the job keeps running; poll slab_jobs).',
+      inputSchema: {
+        sourceDir: z.string().optional().describe('Absolute path to the source directory'),
+        gitUrl: z.string().optional().describe('Git repository URL to clone and run'),
+        image: z.string().optional().describe('Stock image to run instead of building a Dockerfile; source is mounted at /workspace'),
+        command: z.array(z.string()).optional().describe('Command to run, e.g. ["npm","test"]; omit for the image default CMD'),
+        env: z.record(z.string(), z.string()).optional().describe('Env vars for the job'),
+        timeout: z.string().optional().describe('Kill the job after this long, e.g. "90s", "10m" (default 30m)'),
+        name: z.string().optional().describe('Job name (default: source dir basename)'),
+        wait: z.number().int().positive().optional().describe('Max seconds to block for the result (default 300)'),
+      },
+    },
+    async ({ sourceDir, gitUrl, image, command, env, timeout, name, wait }) => {
+      try {
+        let { job } = await client.createJob({ sourceDir, gitUrl, image, command, env, timeout, name })
+        const deadline = Date.now() + (wait ?? 300) * 1000
+        const done = new Set(['succeeded', 'failed', 'canceled'])
+        while (!done.has(job.state) && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 1500))
+          job = (await client.getJob(job.id)).job
+        }
+        if (!done.has(job.state)) {
+          return ok({ id: job.id, state: job.state, note: 'still running — check again with slab_jobs, or fetch logs via GET /v1/jobs/' + job.id + '/logs' })
+        }
+        const { logs } = await client.jobLogs(job.id, 500)
+        return ok({ id: job.id, state: job.state, exitCode: job.exitCode, error: job.error, logs })
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
+
+  server.registerTool(
+    'slab_jobs',
+    {
+      description: 'List jobs (run-to-completion workloads started via slab_run or `slab run`), newest first: state, exit code, command, timings.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { jobs } = await client.listJobs()
+        return ok(jobs.map((j) => ({
+          id: j.id, state: j.state, exitCode: j.exitCode, command: j.command,
+          image: j.image, createdAt: j.createdAt, finishedAt: j.finishedAt, error: j.error,
+        })))
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
+
+  server.registerTool(
     'slab_system_deploy',
     {
       description:

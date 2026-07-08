@@ -1,5 +1,5 @@
 // Thin HTTP client for the slab daemon — shared by the CLI and the MCP server.
-import { AppRecord, DAEMON_PORT, SystemRecord } from './types'
+import { AppRecord, DAEMON_PORT, JobRecord, SystemRecord } from './types'
 
 const BASE = process.env.SLAB_DAEMON_URL ?? `http://127.0.0.1:${DAEMON_PORT}`
 
@@ -39,6 +39,15 @@ export const client = {
   listSecretKeys: (name: string) => req<{ keys: string[] }>('GET', `/v1/apps/${name}/secrets`),
   expose: (name: string) => req<{ app: AppRecord }>('POST', `/v1/apps/${name}/expose`),
   hide: (name: string) => req<{ app: AppRecord }>('POST', `/v1/apps/${name}/hide`),
+  listJobs: () => req<{ jobs: JobRecord[] }>('GET', '/v1/jobs'),
+  createJob: (spec: {
+    sourceDir?: string; gitUrl?: string; image?: string
+    command?: string[]; env?: Record<string, string>; name?: string; timeout?: string
+  }) => req<{ job: JobRecord }>('POST', '/v1/jobs', spec),
+  getJob: (id: string) => req<{ job: JobRecord }>('GET', `/v1/jobs/${id}`),
+  jobLogs: (id: string, tail = 100) => req<{ logs: string }>('GET', `/v1/jobs/${id}/logs?tail=${tail}`),
+  cancelJob: (id: string) => req<{ job: JobRecord }>('POST', `/v1/jobs/${id}/cancel`),
+  removeJob: (id: string) => req<void>('DELETE', `/v1/jobs/${id}`),
   listSystems: () => req<{ systems: SystemRecord[] }>('GET', '/v1/systems'),
   createSystem: (sourceFile: string) => req<{ system: SystemRecord }>('POST', '/v1/systems', { sourceFile }),
   deploySystem: (name: string) => req<{ system: SystemRecord; apps: AppRecord[] }>('POST', `/v1/systems/${name}/deploy`),

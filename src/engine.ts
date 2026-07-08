@@ -1,7 +1,7 @@
 // slab — docker engine. Implements Engine (types.ts) with dockerode against
 // the default local socket.
 import Docker from 'dockerode'
-import { AppRecord, Engine } from './types'
+import { AppRecord, Engine, JobRecord } from './types'
 
 const PG_CONTAINER_NAME = 'slab-postgres'
 const PG_IMAGE = 'postgres:16-alpine'
@@ -283,6 +283,135 @@ export function createEngine(): Engine {
     }
   }
 
+  // ── job layer ───────────────────────────────────────────────────────────
+
+  async function buildJobImage(job: JobRecord): Promise<string> {
+    if (job.image) {
+      if (!(await imageExists(job.image))) await pullImage(job.image)
+      return job.image
+    }
+    if (!job.sourceDir) throw new Error(`job ${job.id} has neither an image nor a source directory`)
+    const suffix = job.id.slice(job.name.length + 1) || 'latest'
+    const tag = `slab-job/${job.name}:${suffix}`
+    let stream: NodeJS.ReadableStream
+    try {
+      stream = await docker.buildImage({ context: job.sourceDir, src: ['.'] }, { t: tag })
+    } catch (err) {
+      throw new Error(`docker build failed for job ${job.id}: ${errMsg(err)}`)
+    }
+    let lastLine = ''
+    let buildError: string | null = null
+    await new Promise<void>((resolve, reject) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(docker as any).modem.followProgress(
+        stream,
+        (err: unknown, events: Array<{ error?: string; errorDetail?: { message?: string } }>) => {
+          if (err) return reject(new Error(`docker build failed for job ${job.id}: ${errMsg(err)}`))
+          const failure = events?.find((e) => e && (e.error || e.errorDetail))
+          if (failure) buildError = failure.error ?? failure.errorDetail?.message ?? 'unknown build error'
+          resolve()
+        },
+        (event: { stream?: string; error?: string }) => {
+          if (event.stream && event.stream.trim()) lastLine = event.stream.trim()
+          if (event.error) buildError = event.error
+        },
+      )
+    })
+    if (buildError) {
+      throw new Error(`docker build failed for job ${job.id}: ${buildError} (last log: ${lastLine || 'n/a'})`)
+    }
+    return tag
+  }
+
+  async function resolveJobContainer(job: JobRecord): Promise<Docker.Container | null> {
+    if (job.containerId) {
+      const c = docker.getContainer(job.containerId)
+      try {
+        await c.inspect()
+        return c
+      } catch {
+        // stale id — fall through to label lookup
+      }
+    }
+    const info = await findContainerByLabel(`slab.job=${job.id}`)
+    return info ? docker.getContainer(info.Id) : null
+  }
+
+  async function runJob(job: JobRecord, imageTag: string): Promise<string> {
+    // A crashed prior daemon could have left a container for this id behind
+    const stale = await findContainerByLabel(`slab.job=${job.id}`)
+    if (stale) await docker.getContainer(stale.Id).remove({ force: true }).catch(() => { /* best-effort */ })
+
+    const mount = job.image && job.sourceDir ? job.sourceDir : null
+    let container: Docker.Container
+    try {
+      container = await docker.createContainer({
+        name: `slab-job-${job.id}`,
+        Image: imageTag,
+        Labels: { 'slab.job': job.id },
+        Env: Object.entries(job.env).map(([k, v]) => `${k}=${v}`),
+        Cmd: job.command.length ? job.command : undefined,
+        WorkingDir: mount ? '/workspace' : undefined,
+        HostConfig: {
+          Binds: mount ? [`${mount}:/workspace`] : undefined,
+          RestartPolicy: { Name: 'no' },
+        },
+      })
+    } catch (err) {
+      throw new Error(`failed to create container for job ${job.id}: ${errMsg(err)}`)
+    }
+    try {
+      await container.start()
+    } catch (err) {
+      await container.remove({ force: true }).catch(() => { /* best-effort cleanup */ })
+      throw new Error(`failed to start job ${job.id}: ${errMsg(err)}`)
+    }
+    return container.id
+  }
+
+  async function waitJob(containerId: string): Promise<number> {
+    const c = docker.getContainer(containerId)
+    try {
+      const res = (await c.wait()) as { StatusCode?: number }
+      return res?.StatusCode ?? -1
+    } catch (err) {
+      // container already gone -> read the exit code from inspect if possible
+      try {
+        const info = await c.inspect()
+        return info.State?.ExitCode ?? -1
+      } catch {
+        throw new Error(`failed to wait for job container ${containerId.slice(0, 12)}: ${errMsg(err)}`)
+      }
+    }
+  }
+
+  async function getJobLogs(job: JobRecord, tail: number): Promise<string> {
+    const c = await resolveJobContainer(job)
+    if (!c) return ''
+    const buf = await c.logs({ stdout: true, stderr: true, tail, timestamps: false })
+    return demuxLogs(buf)
+  }
+
+  async function stopJob(job: JobRecord): Promise<void> {
+    const c = await resolveJobContainer(job)
+    if (!c) return
+    try {
+      await c.stop({ t: 5 })
+    } catch (err) {
+      if (!isIgnorable(err)) throw new Error(`failed to stop job ${job.id}: ${errMsg(err)}`)
+    }
+  }
+
+  async function removeJob(job: JobRecord): Promise<void> {
+    const c = await resolveJobContainer(job)
+    if (!c) return
+    try {
+      await c.remove({ force: true })
+    } catch (err) {
+      if (!isIgnorable(err)) throw new Error(`failed to remove job container for ${job.id}: ${errMsg(err)}`)
+    }
+  }
+
   async function stopContainer(app: AppRecord): Promise<void> {
     const c = await resolveContainer(app)
     if (!c) return
@@ -430,5 +559,11 @@ export function createEngine(): Engine {
     ensureNetwork,
     removeNetwork,
     connectNetworks,
+    buildJobImage,
+    runJob,
+    waitJob,
+    getJobLogs,
+    stopJob,
+    removeJob,
   }
 }

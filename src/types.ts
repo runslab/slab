@@ -40,7 +40,37 @@ export interface AppRecord {
 export interface SlabState {
   apps: Record<string, AppRecord>
   systems?: Record<string, SystemRecord>   // optional for state-file back-compat
+  jobs?: Record<string, JobRecord>         // optional for state-file back-compat
   nextHostPort: number      // starts at 20000
+}
+
+// ── Jobs: run-to-completion workloads (`slab run`) ────────────────────────────
+// A job is the third thing slab runs beside services and functions: build (or
+// pull) an image, run one command, capture the exit code, keep the logs. No
+// ports, no ingress, no restart policy. Two source modes:
+//   - Dockerfile mode: sourceDir has a Dockerfile — build it, run `command`
+//     (or the image's default CMD when command is empty).
+//   - image mode: `image` is set — pull it and bind-mount sourceDir at
+//     /workspace (the sandbox / coding-agent story: stock toolchain image,
+//     your working tree mounted in).
+export type JobState = 'queued' | 'building' | 'running' | 'succeeded' | 'failed' | 'canceled'
+
+export interface JobRecord {
+  id: string                 // <name>-<base36 suffix>, unique across job history
+  name: string               // derived from source dir basename unless overridden
+  sourceDir: string | null   // absolute path (null only when image mode runs bare)
+  gitUrl: string | null      // when set, sourceDir is a slab-managed checkout
+  image: string | null       // stock image to run (image mode); null = Dockerfile mode
+  command: string[]          // container command; [] = image default CMD
+  env: Record<string, string>
+  timeout: string            // duration ("30s" | "5m" | "1h"); enforced by the daemon
+  state: JobState
+  exitCode: number | null    // set when the container exits
+  containerId: string | null
+  error: string | null       // build failure / timeout / interruption message
+  createdAt: string
+  startedAt: string | null   // container start (after build)
+  finishedAt: string | null
 }
 
 // ── Daemon HTTP API (localhost:7766) ──────────────────────────────────────────
@@ -61,6 +91,14 @@ export interface SlabState {
 //   POST   /v1/apps/:name/expose        -> open Cloudflare quick tunnel -> { app } (publicUrl set)
 //   POST   /v1/apps/:name/hide          -> close tunnel -> { app }
 //   GET    /v1/health                   -> { status: 'ok', apps: number, proxyPort: number }
+//
+//   GET    /v1/jobs                     -> { jobs: JobRecord[] } (newest first)
+//   POST   /v1/jobs                     -> body { sourceDir? | gitUrl?, image?, command?: string[],
+//                                           env?, name?, timeout? } ; starts the job async -> 201 { job }
+//   GET    /v1/jobs/:id                 -> { job }
+//   GET    /v1/jobs/:id/logs?tail=100   -> { logs }
+//   POST   /v1/jobs/:id/cancel          -> stop the container -> { job } (state: canceled)
+//   DELETE /v1/jobs/:id                 -> remove container + record -> 204
 //
 // The ingress proxy listens on PROXY_PORT (default 8080) and routes by Host
 // header: <app>.localhost -> app's hostPort. For sleeping functions it starts
@@ -94,6 +132,17 @@ export interface Engine {
   ensureNetwork(name: string): Promise<void>                     // create if missing (slab-net-<system>)
   removeNetwork(name: string): Promise<void>                     // tolerate missing/in-use errors by throwing clear messages
   connectNetworks(app: AppRecord, networks: string[]): Promise<void>  // connect container to each with alias = app.name; tolerate already-connected
+  // ── job layer ──
+  // image mode: pull job.image. Dockerfile mode: build sourceDir, tag slab-job/<name>:<id-suffix>.
+  buildJobImage(job: JobRecord): Promise<string>
+  // Create + start the job container: label {'slab.job': id}, no ports, no
+  // restart policy; image mode bind-mounts sourceDir at /workspace (rw) and
+  // sets it as the workdir. Returns container id.
+  runJob(job: JobRecord, imageTag: string): Promise<string>
+  waitJob(containerId: string): Promise<number>   // docker wait -> exit code
+  getJobLogs(job: JobRecord, tail: number): Promise<string>
+  stopJob(job: JobRecord): Promise<void>          // stop, keep container (logs stay readable)
+  removeJob(job: JobRecord): Promise<void>        // stop + rm the job container
 }
 
 // ── Systems: wiring + isolation (docs/design/systems.md) ─────────────────────

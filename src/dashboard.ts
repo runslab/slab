@@ -9,6 +9,11 @@ export function dashboardHtml(proxyPort: number): string {
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>slab</title>
+<script>
+  // theme init before first paint (no flash): saved choice, else OS preference
+  document.documentElement.dataset.theme =
+    localStorage.getItem('slab-theme') ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+</script>
 <style>
   :root {
     --bg: #131418; --rail: #0d0e11;
@@ -17,6 +22,25 @@ export function dashboardHtml(proxyPort: number): string {
     --accent: #ffb454;
     --amber: var(--accent); --green: #71d68d; --red: #f07f78; --blue: #82b8e8;
     --board: #14170f; --trace: color-mix(in srgb, var(--accent) 28%, transparent);
+    /* chassis palette (dark) — overridden wholesale by the light theme below */
+    --unit1: #202127; --unit2: #17181d; --unit3: #101116; --unit4: #15161b;
+    --cab-hi: #101114; --cab-lo: #0c0d10; --cheek: #241a12;
+    --edge2: #2b2d34; --edge3: #26282e; --line: #1c1e24;
+    --od: #3a3d44; --node: #1b1d22;
+    --drawer-bg: #0b0c0e; --scrim: rgba(8,9,11,.82); --btn-bg: rgba(0,0,0,.25);
+  }
+  /* light: daylight machine room — aluminum faceplates, putty chassis, oak cheeks.
+     Screens (viz, LCDs, VU meters, sleds, thumbs, PCB boards) stay dark glass. */
+  :root[data-theme="light"] {
+    --bg: #e9e6df; --rail: #c9c6bf;
+    --unit-hi: #f2f0ea; --unit-lo: #f6f4ef; --edge: #b3b0a8; --groove: #a49f96;
+    --text: #26272d; --dim: #55575e; --faint: #8b8d93;
+    --accent: #c8791b;
+    --unit1: #f7f5f0; --unit2: #edebe5; --unit3: #e0ded7; --unit4: #e8e6df;
+    --cab-hi: #d9d6cf; --cab-lo: #c8c5be; --cheek: #b08a5c;
+    --edge2: #bfbcb4; --edge3: #c8c5bd; --line: #d9d6cf;
+    --od: #b5b2aa; --node: #f6f4ef;
+    --drawer-bg: #f2f0ea; --scrim: rgba(120,118,112,.55); --btn-bg: rgba(255,255,255,.45);
   }
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -50,14 +74,14 @@ export function dashboardHtml(proxyPort: number): string {
   .spine span:hover::after {
     content: attr(data-nav); position: absolute; left: 52px; top: 50%; transform: translateY(-50%);
     white-space: nowrap; font-size: 9px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase;
-    color: var(--accent); background: rgba(10,11,13,.97); border: 1px solid var(--edge);
+    color: var(--accent); background: var(--drawer-bg); border: 1px solid var(--edge);
     padding: 3px 8px; border-radius: 4px; z-index: 30;
   }
   .spine span:first-child { color: var(--accent); }
 
   /* cabinet: matte monolith with scattered vent perforations (oxide-style) */
   .cabinet {
-    background: linear-gradient(180deg, #101114, #0c0d10);
+    background: linear-gradient(180deg, var(--cab-hi), var(--cab-lo));
     border: 1px solid var(--groove); border-radius: 12px;
     border-left: 9px solid transparent; border-right: 9px solid transparent;
     background-clip: padding-box; position: relative;
@@ -65,7 +89,7 @@ export function dashboardHtml(proxyPort: number): string {
     overflow: hidden;
   }
   .cabinet::before, .cabinet + .cabinet::before { content: none; }
-  .cabinet { box-shadow: -9px 0 0 0 #241a12, 9px 0 0 0 #241a12, -9px 2px 8px rgba(0,0,0,.5), 9px 2px 8px rgba(0,0,0,.5), 0 12px 40px rgba(0,0,0,.5); }
+  .cabinet { box-shadow: -9px 0 0 0 var(--cheek), 9px 0 0 0 var(--cheek), -9px 2px 8px rgba(0,0,0,.5), 9px 2px 8px rgba(0,0,0,.5), 0 12px 40px rgba(0,0,0,.5); }
   .vents {
     height: 64px; margin: 14px 18px 4px;
     background:
@@ -82,7 +106,7 @@ export function dashboardHtml(proxyPort: number): string {
   .cabinet + .cabinet { margin-top: 18px; }
   #viz { cursor: pointer; }
   .cabinet.flash { animation: flashcab 900ms ease-out; }
-  @keyframes flashcab { 0%, 30% { box-shadow: -9px 0 0 0 var(--accent), 9px 0 0 0 var(--accent), 0 0 30px color-mix(in srgb, var(--accent) 40%, transparent); } 100% { box-shadow: -9px 0 0 0 #241a12, 9px 0 0 0 #241a12, 0 12px 40px rgba(0,0,0,.5); } }
+  @keyframes flashcab { 0%, 30% { box-shadow: -9px 0 0 0 var(--accent), 9px 0 0 0 var(--accent), 0 0 30px color-mix(in srgb, var(--accent) 40%, transparent); } 100% { box-shadow: -9px 0 0 0 var(--cheek), 9px 0 0 0 var(--cheek), 0 12px 40px rgba(0,0,0,.5); } }
   @media (prefers-reduced-motion: reduce) { .cabinet.flash { animation: none; } }
   .rack {
     background: var(--rail); border-top: 1px solid var(--groove);
@@ -98,9 +122,9 @@ export function dashboardHtml(proxyPort: number): string {
   .diagbtn { float: right; background: none; border: 1px solid var(--edge); border-radius: 4px; color: var(--dim);
     font: inherit; font-size: 10px; padding: 2px 10px; cursor: pointer; letter-spacing: .08em; }
   .diagbtn:hover { color: var(--accent); border-color: var(--accent); }
-  #overlay { position: fixed; inset: 0; display: none; background: rgba(8,9,11,.82); z-index: 100;
+  #overlay { position: fixed; inset: 0; display: none; background: var(--scrim); z-index: 100;
     padding: 5vh 5vw; backdrop-filter: blur(3px); }
-  #overlay .panel { max-width: 860px; margin: 0 auto; background: linear-gradient(180deg, #101114, #0c0d10);
+  #overlay .panel { max-width: 860px; margin: 0 auto; background: linear-gradient(180deg, var(--cab-hi), var(--cab-lo));
     border: 1px solid var(--edge); border-radius: 12px; padding: 18px 22px; box-shadow: 0 24px 70px rgba(0,0,0,.7); }
   #overlay .panel h2 { font-size: 11px; color: var(--accent); letter-spacing: .18em; text-transform: uppercase; margin-bottom: 4px; }
   #overlay .panel .note { color: var(--faint); font-size: 10px; margin-bottom: 12px; }
@@ -116,17 +140,18 @@ export function dashboardHtml(proxyPort: number): string {
   body.overview #cabinets { display: none; }
   body.overview #overview { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
   body.overview .deck { display: none; }
+  body.overview .jobdeck { display: none; }
   .otile {
-    background: linear-gradient(180deg, #1a1c22, #101116); border: 1px solid #2b2d34; border-radius: 10px;
+    background: linear-gradient(180deg, var(--unit1), var(--unit3)); border: 1px solid var(--edge2); border-radius: 10px;
     padding: 14px; cursor: pointer; position: relative; overflow: hidden;
     box-shadow: 0 4px 12px rgba(0,0,0,.4); transition: transform .12s, border-color .12s;
   }
   .otile:hover { transform: translateY(-2px); border-color: var(--accent); }
-  .otile.err { border-color: color-mix(in srgb, var(--red) 55%, #2b2d34); }
+  .otile.err { border-color: color-mix(in srgb, var(--red) 55%, var(--edge2)); }
   .otile .oname { font-size: 14px; font-weight: 800; letter-spacing: .02em; }
   .otile .otag { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-top: 1px; }
   .otile .odots { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0 10px; }
-  .otile .od { width: 9px; height: 9px; border-radius: 50%; background: #3a3d44; }
+  .otile .od { width: 9px; height: 9px; border-radius: 50%; background: var(--od); }
   .otile .od.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .otile .od.sleeping { background: var(--blue); opacity: .7; }
   .otile .od.error { background: var(--red); box-shadow: 0 0 6px var(--red); }
@@ -157,17 +182,17 @@ export function dashboardHtml(proxyPort: number): string {
     font: inherit; font-size: 10px; padding: 3px 10px; cursor: pointer; }
   #bench-switch button.active { color: var(--accent); border-color: var(--accent); }
   .bench-body { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
-  #bench-diagram { background: linear-gradient(180deg, #101114, #0c0d10); border: 1px solid var(--groove);
+  #bench-diagram { background: linear-gradient(180deg, var(--cab-hi), var(--cab-lo)); border: 1px solid var(--groove);
     border-radius: 12px; padding: 18px; min-height: 60vh; display: flex; align-items: center; }
   #bench-diagram svg { width: 100%; height: auto; }
   #bench-diagram .node { cursor: pointer; }
   #bench-diagram .node:hover rect { stroke: var(--accent); }
   #bench-diagram .node.sel rect { stroke: var(--accent); stroke-width: 2; }
-  #bench-panel { background: linear-gradient(180deg, #17181d, #101116); border: 1px solid #2b2d34;
+  #bench-panel { background: linear-gradient(180deg, var(--unit2), var(--unit3)); border: 1px solid var(--edge2);
     border-radius: 10px; padding: 16px; position: sticky; top: 16px; }
   .bench-hint { color: var(--faint); font-size: 11px; text-align: center; padding: 30px 0; }
   .mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-bottom: 20px; }
-  .mcard { background: #101116; border: 1px solid #2b2d34; border-radius: 9px; overflow: hidden; cursor: pointer;
+  .mcard { background: var(--unit3); border: 1px solid var(--edge2); border-radius: 9px; overflow: hidden; cursor: pointer;
     transition: transform .12s, border-color .12s; }
   .mcard:hover { transform: translateY(-2px); border-color: var(--accent); }
   .mcard.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -175,13 +200,13 @@ export function dashboardHtml(proxyPort: number): string {
   .mcshot iframe { width: 840px; height: 528px; border: 0; transform: scale(.25); transform-origin: top left; pointer-events: none; }
   .mcshot.off { display: flex; align-items: center; justify-content: center; background: #0b0c0e; color: var(--faint); font-size: 11px; }
   .mcname { display: flex; align-items: center; gap: 7px; padding: 9px 11px 2px; font-size: 13px; font-weight: 700; }
-  .mcname .od { width: 8px; height: 8px; border-radius: 50%; background: #3a3d44; }
+  .mcname .od { width: 8px; height: 8px; border-radius: 50%; background: var(--od); }
   .mcname .od.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .mcname .od.sleeping { background: var(--blue); } .mcname .od.error { background: var(--red); }
   .mcsub { padding: 0 11px 10px; font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; }
-  .mdiagram { background: linear-gradient(180deg, #101114, #0c0d10); border: 1px solid var(--groove); border-radius: 12px; padding: 16px; }
-  .viewport { border: 1px solid #2b2d34; border-radius: 8px; overflow: hidden; margin-bottom: 14px; background: #0b0c0e; }
-  .viewport .vpbar { display: flex; align-items: center; gap: 7px; padding: 5px 10px; font-size: 10px; color: var(--dim);
+  .mdiagram { background: linear-gradient(180deg, var(--cab-hi), var(--cab-lo)); border: 1px solid var(--groove); border-radius: 12px; padding: 16px; }
+  .viewport { border: 1px solid var(--edge2); border-radius: 8px; overflow: hidden; margin-bottom: 14px; background: #0b0c0e; }
+  .viewport .vpbar { display: flex; align-items: center; gap: 7px; padding: 5px 10px; font-size: 10px; color: #9a9da5;
     background: linear-gradient(180deg, #1c1e24, #141519); border-bottom: 1px solid #26282e; }
   .viewport .vpdot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
   .viewport .vpopen { margin-left: auto; color: var(--blue); text-decoration: none; }
@@ -190,7 +215,7 @@ export function dashboardHtml(proxyPort: number): string {
   .viewport.off { color: var(--faint); font-size: 11px; text-align: center; padding: 40px 12px; line-height: 1.7; }
   .viewport.off span { color: #45474e; font-size: 10px; }
   /* mini live thumbnail on the rack unit itself */
-  .thumb { width: 132px; height: 82px; border: 1px solid #2b2d34; border-radius: 5px; overflow: hidden;
+  .thumb { width: 132px; height: 82px; border: 1px solid var(--edge2); border-radius: 5px; overflow: hidden;
     background: #0b0c0e; position: relative; flex-shrink: 0; }
   .thumb iframe { width: 528px; height: 328px; border: 0; transform: scale(.25); transform-origin: top left;
     pointer-events: none; background: #fff; }
@@ -202,7 +227,7 @@ export function dashboardHtml(proxyPort: number): string {
   #bench-panel .board { min-height: 0; cursor: default; padding: 12px; }
   #bench-panel .board::after { content: none; }
   #bench-panel .pwires { margin-top: 12px; font-size: 11px; }
-  #bench-panel .pwires .w { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid #1c1e24; color: var(--dim); }
+  #bench-panel .pwires .w { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--dim); }
   #bench-panel .pwires .w b { color: var(--accent); font-weight: 500; }
   @media (max-width: 900px) { .bench-body { grid-template-columns: 1fr; } }
 
@@ -211,8 +236,8 @@ export function dashboardHtml(proxyPort: number): string {
     display: grid; grid-template-columns: auto auto 1fr auto; gap: 18px; align-items: center;
     background:
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
-      linear-gradient(180deg, #202127 0%, #17181d 18%, #101116 60%, #15161b 100%);
-    border: 1px solid #2b2d34; border-radius: 8px;
+      linear-gradient(180deg, var(--unit1) 0%, var(--unit2) 18%, var(--unit3) 60%, var(--unit4) 100%);
+    border: 1px solid var(--edge2); border-radius: 8px;
     padding: 12px 18px; margin-bottom: 16px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(0,0,0,.6), 0 5px 14px rgba(0,0,0,.45);
   }
@@ -232,7 +257,7 @@ export function dashboardHtml(proxyPort: number): string {
   .knob.on { transform: rotate(135deg); }
   .knob.on::after { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
   .knobwrap .klbl { font-size: 8px; letter-spacing: .18em; color: var(--faint); text-transform: uppercase; }
-  .playbtn { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; color: var(--dim); font-size: 13px;
+  .playbtn { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; color: #9a9da5; font-size: 13px;
     background: radial-gradient(circle at 35% 30%, #33363e, #14151a 75%); border: 1px solid #3a3d45; padding: 0;
     box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 2px 5px rgba(0,0,0,.5); }
   .playbtn:hover { color: var(--accent); border-color: var(--accent); }
@@ -240,6 +265,28 @@ export function dashboardHtml(proxyPort: number): string {
   #viz { width: 100%; height: 64px; display: block; background: #0b0c09; border: 1px solid #26282e; border-radius: 4px;
     box-shadow: inset 0 1px 5px rgba(0,0,0,.8); }
   .deck .lcd { align-self: center; }
+
+  /* ── job bench: run-to-completion workloads (slab run) ── */
+  .jobdeck {
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+      linear-gradient(180deg, var(--unit1) 0%, var(--unit2) 18%, var(--unit3) 60%, var(--unit4) 100%);
+    border: 1px solid var(--edge2); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(0,0,0,.4), 0 5px 14px rgba(0,0,0,.3);
+  }
+  .jobdeck h3 { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px; }
+  .jobrow { display: flex; align-items: center; gap: 12px; padding: 7px 2px; font-size: 12px; }
+  .jobrow + .jobrow { border-top: 1px solid var(--line); }
+  .jl { width: 8px; height: 8px; border-radius: 50%; background: var(--od); flex-shrink: 0; }
+  .jl.queued, .jl.building { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: breathe 1s ease-in-out infinite; }
+  .jl.running { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: breathe 2s ease-in-out infinite; }
+  .jl.succeeded { background: var(--green); }
+  .jl.failed { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  @media (prefers-reduced-motion: reduce) { .jl { animation: none !important; } }
+  .jid { font-weight: 700; white-space: nowrap; }
+  .jcmd { color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jmeta { color: var(--faint); font-size: 10px; letter-spacing: .06em; white-space: nowrap; }
+  .jobrow button { padding: 2px 9px; font-size: 10px; }
 
   /* ── 3D flip machinery ─────────────────────────────────────────────── */
   .bay { perspective: 1400px; margin-bottom: 10px; }
@@ -255,8 +302,8 @@ export function dashboardHtml(proxyPort: number): string {
     display: grid; grid-template-columns: 30px 1fr auto auto auto; gap: 18px; align-items: center;
     background:
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
-      linear-gradient(180deg, #202127 0%, #17181d 18%, #101116 60%, #15161b 100%);
-    border: 1px solid #2b2d34; border-radius: 8px;
+      linear-gradient(180deg, var(--unit1) 0%, var(--unit2) 18%, var(--unit3) 60%, var(--unit4) 100%);
+    border: 1px solid var(--edge2); border-radius: 8px;
     padding: 16px 22px 16px 62px; position: relative; height: 100%;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(0,0,0,.6), 0 5px 14px rgba(0,0,0,.45);
   }
@@ -336,7 +383,7 @@ export function dashboardHtml(proxyPort: number): string {
   .bay:hover .acts, .acts:focus-within { opacity: 1; }
   .acts .row { display: flex; gap: 6px; justify-content: flex-end; }
   button {
-    background: rgba(0,0,0,.25); color: var(--dim); border: 1px solid var(--edge); border-radius: 5px;
+    background: var(--btn-bg); color: var(--dim); border: 1px solid var(--edge); border-radius: 5px;
     padding: 4px 11px; font: inherit; font-size: 11px; cursor: pointer;
   }
   button:hover { color: var(--text); border-color: var(--faint); }
@@ -367,7 +414,7 @@ export function dashboardHtml(proxyPort: number): string {
   }
   .chip::before { top: -3px; } .chip::after { bottom: -3px; }
   .chip .lbl { font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: #7a805f; }
-  .chip .val { font-size: 11px; color: var(--text); margin-top: 2px; word-break: break-all; max-width: 260px; }
+  .chip .val { font-size: 11px; color: #ece9e2; margin-top: 2px; word-break: break-all; max-width: 260px; }
   .chip .val.amber { color: var(--amber); }
   .chip.wide { flex: 1 1 100%; }
   .wire { display: flex; align-items: center; gap: 8px; font-size: 11px; }
@@ -380,7 +427,7 @@ export function dashboardHtml(proxyPort: number): string {
   .settings { background: none; border: none; color: var(--faint); font: inherit; font-size: 9px;
     text-transform: uppercase; letter-spacing: .14em; cursor: pointer; padding: 2px 4px; }
   .settings:hover { color: var(--accent); }
-  .setrow { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #1c1e24; font-size: 12px; }
+  .setrow { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
   .setrow .k { width: 140px; color: var(--dim); }
   .setrow input[type=color] { width: 26px; height: 26px; border: 1px solid var(--edge); border-radius: 50%; background: none; padding: 0; cursor: pointer; }
   .setrow input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
@@ -398,12 +445,12 @@ export function dashboardHtml(proxyPort: number): string {
 
   #drawer {
     position: fixed; left: 0; right: 0; bottom: 0; max-height: 46vh; display: none;
-    background: #0b0c0e; border-top: 1px solid var(--edge); padding: 14px clamp(20px, 4vw, 56px);
+    background: var(--drawer-bg); border-top: 1px solid var(--edge); padding: 14px clamp(20px, 4vw, 56px);
     overflow: auto; font-size: 12px; white-space: pre-wrap; box-shadow: 0 -14px 40px rgba(0,0,0,.6);
   }
   #drawer .bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--faint);
     font-size: 10px; text-transform: uppercase; letter-spacing: .16em; margin-bottom: 10px;
-    position: sticky; top: 0; background: #0b0c0e; padding-bottom: 6px; }
+    position: sticky; top: 0; background: var(--drawer-bg); padding-bottom: 6px; }
   #dapps { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; }
   #dapps button { text-transform: none; letter-spacing: 0; }
   #dapps button.active { border-color: var(--amber); border-width: 1.5px; color: var(--amber); }
@@ -433,6 +480,7 @@ export function dashboardHtml(proxyPort: number): string {
     <div class="stat"><b id="s-run">–</b><span>running</span></div>
     <div class="stat"><b id="s-rpm">–<em>/m</em></b><span>requests</span></div>
     <button class="ovbtn" id="ovbtn" onclick="toggleOverview()" title="overview (zoom out)">&#9638;</button>
+    <button class="ovbtn" id="thbtn" onclick="toggleTheme()" title="light / dark">&#9681;</button>
   </div>
 </header>
 <div class="deck">
@@ -441,6 +489,7 @@ export function dashboardHtml(proxyPort: number): string {
   <canvas id="viz" width="800" height="64"></canvas>
   <span class="lcd" id="deck-lcd">000 evt/min</span>
 </div>
+<div class="jobdeck" id="jobs" style="display:none"></div>
 <div class="layout">
   <div id="cabinets"></div>
   <div id="overview"></div>
@@ -470,6 +519,12 @@ const hist = {}          // name -> recent reqPerMin samples
 const openBays = new Set()  // names of flipped-open units (persists across refresh)
 let appsCache = []
 let systemsCache = []
+let jobsCache = []
+function toggleTheme() {
+  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
+  document.documentElement.dataset.theme = t
+  localStorage.setItem('slab-theme', t)
+}
 function toggle() {
   // one gesture, whole rack: flip every board together
   if (openBays.size) openBays.clear()
@@ -663,6 +718,53 @@ function updateDynamics() {
     if (sp) sp.innerHTML = spark(a.name)
   }
 }
+// ── job bench ────────────────────────────────────────────────────────────────
+function jobDur(j) {
+  if (!j.startedAt) return ''
+  const end = j.finishedAt ? new Date(j.finishedAt).getTime() : Date.now()
+  const s = Math.max(0, Math.round((end - new Date(j.startedAt).getTime()) / 1000))
+  return s < 60 ? s + 's' : Math.floor(s / 60) + 'm' + (s % 60 ? (s % 60) + 's' : '')
+}
+async function jobAct(id, verb) {
+  await fetch('/v1/jobs/' + id + '/' + verb, { method: 'POST' })
+  load()
+}
+async function jobRm(id) {
+  await fetch('/v1/jobs/' + id, { method: 'DELETE' })
+  load()
+}
+async function showJobLogs(id) {
+  document.getElementById('dtitle').textContent = 'job — ' + id
+  document.getElementById('dapps').innerHTML = ''
+  document.getElementById('dbody').textContent = 'loading…'
+  drawer.style.display = 'block'
+  const r = await fetch('/v1/jobs/' + id + '/logs?tail=500')
+  const d = await r.json()
+  document.getElementById('dbody').textContent = d.logs ?? d.error ?? ''
+}
+function renderJobs() {
+  const el = document.getElementById('jobs')
+  if (!jobsCache.length) { el.style.display = 'none'; el.innerHTML = ''; return }
+  const live = new Set(['queued', 'building', 'running'])
+  const rows = jobsCache.slice(0, 8).map(j => {
+    const cmd = j.command.length ? j.command.join(' ') : (j.image ? j.image + ' (default cmd)' : 'default cmd')
+    const meta = j.state
+      + (j.exitCode != null ? ' · exit ' + j.exitCode : '')
+      + (jobDur(j) ? ' · ' + jobDur(j) : '')
+      + ' · ' + rel(j.createdAt)
+    const acts = live.has(j.state)
+      ? '<button class="warn" onclick="jobAct(\\'' + j.id + '\\',\\'cancel\\')">cancel</button>'
+      : '<button onclick="showJobLogs(\\'' + j.id + '\\')">logs</button>'
+        + '<button class="warn" onclick="jobRm(\\'' + j.id + '\\')">rm</button>'
+    return '<div class="jobrow"><span class="jl ' + j.state + '"></span>'
+      + '<span class="jid">' + esc(j.id) + '</span>'
+      + '<span class="jcmd" title="' + esc(j.error ?? cmd) + '">' + esc(cmd) + (j.error ? ' — ' + esc(j.error.slice(0, 80)) : '') + '</span>'
+      + '<span class="jmeta">' + esc(meta) + '</span>'
+      + acts + '</div>'
+  })
+  el.innerHTML = '<h3>job bench — slab run</h3>' + rows.join('')
+  el.style.display = 'block'
+}
 function render() {
   const apps = appsCache
   const systems = systemsCache
@@ -684,11 +786,13 @@ function render() {
   container.innerHTML = html
 }
 async function load() {
-  const [r, rs] = await Promise.all([fetch('/v1/apps'), fetch('/v1/systems')])
+  const [r, rs, rj] = await Promise.all([fetch('/v1/apps'), fetch('/v1/systems'), fetch('/v1/jobs')])
   const d = await r.json()
   appsCache = d.apps ?? []
   systemsCache = []
   try { const ds = await rs.json(); systemsCache = ds.systems ?? [] } catch (e) {}
+  jobsCache = []
+  try { const dj = await rj.json(); jobsCache = dj.jobs ?? [] } catch (e) {}
   let totalRpm = 0
   for (const a of appsCache) {
     const rpm = a.reqPerMin ?? 0
@@ -699,6 +803,7 @@ async function load() {
   document.getElementById('s-run').textContent = appsCache.filter(a => a.state === 'running').length
   document.getElementById('s-rpm').innerHTML = totalRpm + '<em>/m</em>'
   render()
+  renderJobs()
   if (benchSys) benchRender()
   if (overviewOn) renderOverview()
 }
@@ -749,7 +854,7 @@ function diagramSvg(sys, clickable) {
     + '<text x="30" y="' + (rowY.pub - 14) + '" fill="var(--faint)" font-size="10" letter-spacing="2">SLAB-NET-' + esc(sys.name).toUpperCase() + '</text>'
   // ingress node
   if (pub.length) {
-    svg += '<rect x="' + (W / 2 - 70) + '" y="' + rowY.ingress + '" width="140" height="34" rx="6" fill="#0b0c0e" stroke="#82b8e8"/>'
+    svg += '<rect x="' + (W / 2 - 70) + '" y="' + rowY.ingress + '" width="140" height="34" rx="6" fill="var(--node)" stroke="#82b8e8"/>'
       + '<text x="' + (W / 2) + '" y="' + (rowY.ingress + 21) + '" fill="#82b8e8" font-size="11" text-anchor="middle">ingress :8080</text>'
     for (const n of place(pub, rowY.pub)) {
       svg += '<path d="M ' + (W / 2) + ' ' + (rowY.ingress + 34) + ' C ' + (W / 2) + ' ' + (rowY.pub - 40) + ', ' + (n.x + NW / 2) + ' ' + (rowY.pub - 44) + ', ' + (n.x + NW / 2) + ' ' + (n.y - 2) + '" fill="none" stroke="#82b8e8" stroke-width="1.6" marker-end="url(#arrb)" opacity=".7"/>'
@@ -776,9 +881,9 @@ function diagramSvg(sys, clickable) {
     svg += clickable
       ? '<g class="' + cls + '" onclick="benchSelect(\\'' + a.name + '\\')">'
       : '<g>'
-      + '<rect x="' + n.x + '" y="' + n.y + '" width="' + NW + '" height="' + NH + '" rx="7" fill="#1b1d22" stroke="' + (priv2 ? 'var(--faint)' : '#33363e') + '"' + (priv2 ? ' stroke-dasharray="4 3"' : '') + '/>'
+      + '<rect x="' + n.x + '" y="' + n.y + '" width="' + NW + '" height="' + NH + '" rx="7" fill="var(--node)" stroke="' + (priv2 ? 'var(--faint)' : 'var(--edge)') + '"' + (priv2 ? ' stroke-dasharray="4 3"' : '') + '/>'
       + '<circle cx="' + (n.x + 16) + '" cy="' + (n.y + NH / 2) + '" r="4" fill="' + nodeColor(a) + '"/>'
-      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 22) + '" fill="#ece9e2" font-size="12" font-weight="700">' + esc(a.name) + '</text>'
+      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 22) + '" fill="var(--text)" font-size="12" font-weight="700">' + esc(a.name) + '</text>'
       + '<text x="' + (n.x + 30) + '" y="' + (n.y + 38) + '" fill="var(--faint)" font-size="9">' + (priv2 ? 'private - :' : ':') + a.manifest.port + ' - ' + a.manifest.type + '</text>'
       + '</g>'
   }
@@ -902,6 +1007,7 @@ es.onmessage = (m) => {
     const e = JSON.parse(m.data)
     if (e.type === 'request' && e.app) onLiveEvent(e.app)
     if (e.type === 'deploy' && e.app) { energy[e.app] = 1; deployChord(e.app) }
+    if (e.type === 'job') load()   // job state changed — refresh the bench promptly
   } catch { /* ignore */ }
 }
 function accentColor() {
@@ -1181,19 +1287,33 @@ export function apiHumanHtml(path: string, data: unknown): string {
     ['GET', '/v1/apps/:name/secrets', 'secret names'],
     ['POST', '/v1/apps/:name/expose', 'public tunnel url'],
     ['POST', '/v1/apps/:name/hide', 'close tunnel'],
+    ['GET', '/v1/jobs', 'all jobs (newest first)'],
+    ['POST', '/v1/jobs', '{ sourceDir?|gitUrl?, image?, command?, env?, timeout? }'],
+    ['GET', '/v1/jobs/:id', 'one job'],
+    ['GET', '/v1/jobs/:id/logs?tail=100', 'job logs'],
+    ['POST', '/v1/jobs/:id/cancel', 'cancel a running job'],
+    ['DELETE', '/v1/jobs/:id', 'remove job'],
     ['GET', '/v1/health', 'daemon status'],
   ]
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>slab api — ${path}</title>
+<script>
+  document.documentElement.dataset.theme =
+    localStorage.getItem('slab-theme') ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+</script>
 <style>
-  body { font: 13px/1.6 ui-monospace, Menlo, monospace; background: #131418; color: #ece9e2; padding: 40px; max-width: 900px; margin: 0 auto; }
-  h1 { font-size: 13px; color: #ffb454; letter-spacing: .1em; margin-bottom: 4px; }
-  .note { color: #5f626a; font-size: 11px; margin-bottom: 22px; }
-  pre { background: #0b0c0e; border: 1px solid #2c2f36; border-radius: 8px; padding: 16px; overflow: auto; font-size: 12px; margin-bottom: 26px; }
+  :root { --bg: #131418; --text: #ece9e2; --dim: #9a9da5; --faint: #5f626a; --well: #0b0c0e;
+    --edge: #2c2f36; --line: #1c1e24; --accent: #ffb454; --blue: #82b8e8; }
+  :root[data-theme="light"] { --bg: #e9e6df; --text: #26272d; --dim: #55575e; --faint: #8b8d93; --well: #f4f2ec;
+    --edge: #bfbcb4; --line: #d9d6cf; --accent: #c8791b; --blue: #2f6ea8; }
+  body { font: 13px/1.6 ui-monospace, Menlo, monospace; background: var(--bg); color: var(--text); padding: 40px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 13px; color: var(--accent); letter-spacing: .1em; margin-bottom: 4px; }
+  .note { color: var(--faint); font-size: 11px; margin-bottom: 22px; }
+  pre { background: var(--well); border: 1px solid var(--edge); border-radius: 8px; padding: 16px; overflow: auto; font-size: 12px; margin-bottom: 26px; }
   table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  td { padding: 5px 14px 5px 0; border-bottom: 1px solid #1c1e24; color: #9a9da5; }
-  td:first-child { color: #82b8e8; width: 60px; }
-  td:nth-child(2) { color: #ece9e2; }
-  a { color: #82b8e8; }
+  td { padding: 5px 14px 5px 0; border-bottom: 1px solid var(--line); color: var(--dim); }
+  td:first-child { color: var(--blue); width: 60px; }
+  td:nth-child(2) { color: var(--text); }
+  a { color: var(--blue); }
 </style></head><body>
 <h1>slab api — ${path}</h1>
 <div class="note">You're seeing HTML because your client sent <b>Accept: text/html</b>. Agents and curl get raw JSON from the same URL. Dashboard: <a href="/">/</a></div>
