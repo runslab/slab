@@ -109,6 +109,34 @@ export function dashboardHtml(proxyPort: number): string {
   @keyframes cursor { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .cabmark::after { animation: none; } }
 
+  .ovbtn { background: none; border: 1px solid var(--edge); border-radius: 5px; color: var(--dim);
+    font-size: 15px; width: 32px; height: 32px; cursor: pointer; align-self: center; }
+  .ovbtn:hover, .ovbtn.on { color: var(--accent); border-color: var(--accent); }
+  #overview { display: none; }
+  body.overview #cabinets { display: none; }
+  body.overview #overview { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  body.overview .deck { display: none; }
+  .otile {
+    background: linear-gradient(180deg, #1a1c22, #101116); border: 1px solid #2b2d34; border-radius: 10px;
+    padding: 14px; cursor: pointer; position: relative; overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,.4); transition: transform .12s, border-color .12s;
+  }
+  .otile:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .otile.err { border-color: color-mix(in srgb, var(--red) 55%, #2b2d34); }
+  .otile .oname { font-size: 14px; font-weight: 800; letter-spacing: .02em; }
+  .otile .otag { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-top: 1px; }
+  .otile .odots { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0 10px; }
+  .otile .od { width: 9px; height: 9px; border-radius: 50%; background: #3a3d44; }
+  .otile .od.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .otile .od.sleeping { background: var(--blue); opacity: .7; }
+  .otile .od.error { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .otile .od.priv { outline: 1px dashed var(--faint); outline-offset: 1px; }
+  .otile .ofoot { display: flex; justify-content: space-between; font-size: 10px; color: var(--dim); }
+  .otile .obar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); transition: width .5s; }
+  .ovhead { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; }
+  .ovhead h2 { font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--accent); }
+  .ovhead span { font-size: 10px; color: var(--faint); }
+
   /* ── workbench slides in from the right over the rack ── */
   #cube { position: relative; }
   #face-bench {
@@ -390,6 +418,7 @@ export function dashboardHtml(proxyPort: number): string {
     <div class="stat"><b id="s-apps">–</b><span>apps</span></div>
     <div class="stat"><b id="s-run">–</b><span>running</span></div>
     <div class="stat"><b id="s-rpm">–<em>/m</em></b><span>requests</span></div>
+    <button class="ovbtn" id="ovbtn" onclick="toggleOverview()" title="overview (zoom out)">&#9638;</button>
   </div>
 </header>
 <div class="deck">
@@ -400,6 +429,7 @@ export function dashboardHtml(proxyPort: number): string {
 </div>
 <div class="layout">
   <div id="cabinets"></div>
+  <div id="overview"></div>
 </div>
 <footer>
   <span>ingress :${proxyPort} · api :7766</span>
@@ -625,6 +655,7 @@ async function load() {
   document.getElementById('s-rpm').innerHTML = totalRpm + '<em>/m</em>'
   render()
   if (benchSys) benchRender()
+  if (overviewOn) renderOverview()
 }
 async function navStatus() {
   const r = await fetch('/v1/health')
@@ -927,6 +958,7 @@ function exitBench() {
 }
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.body.classList.contains('bench-open')) exitBench()
+  else if (e.key === 'Escape' && overviewOn) toggleOverview()
 })
 function benchSelect(name) {
   benchSel = name
@@ -984,6 +1016,49 @@ function benchRender() {
     + (wires.length
         ? '<div class="pwires">' + wires.map(([k, v]) => '<div class="w"><b>' + esc(k) + '</b><span>' + esc(v) + '</span></div>').join('') + '</div>'
         : '')
+}
+
+
+// ── overview: zoom out to a tile per system (scales to a wall of racks) ───────
+let overviewOn = false
+function toggleOverview() {
+  overviewOn = !overviewOn
+  document.body.classList.toggle('overview', overviewOn)
+  document.getElementById('ovbtn').classList.toggle('on', overviewOn)
+  if (overviewOn) renderOverview()
+}
+function flyTo(cabId) {
+  overviewOn = false
+  document.body.classList.remove('overview')
+  document.getElementById('ovbtn').classList.remove('on')
+  requestAnimationFrame(() => {
+    const el = document.getElementById(cabId)
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 900) }
+  })
+}
+function tileHtml(title, cabId, apps, isSys) {
+  const running = apps.filter(a => a.state === 'running').length
+  const err = apps.some(a => a.state === 'error')
+  const rpm = apps.reduce((n, a) => n + (a.reqPerMin ?? 0), 0)
+  const maxrpm = Math.max(1, ...appsCache.map(a => a.reqPerMin ?? 0))
+  const dots = apps.map(a =>
+    '<span class="od ' + a.state + (a.manifest.public === false ? ' priv' : '') + '" title="' + esc(a.name) + ' - ' + a.state + '"></span>'
+  ).join('')
+  return '<div class="otile' + (err ? ' err' : '') + '" onclick="flyTo(\\'' + cabId + '\\')">'
+    + '<div class="oname">' + esc(title) + '</div>'
+    + '<div class="otag">' + (isSys ? 'system' : 'standalone') + ' - ' + running + '/' + apps.length + ' up</div>'
+    + '<div class="odots">' + dots + '</div>'
+    + '<div class="ofoot"><span>' + rpm + ' req/min</span><span>' + apps.length + ' apps</span></div>'
+    + '<div class="obar" style="width:' + Math.round((rpm / (maxrpm * Math.max(1, apps.length))) * 100) + '%"></div>'
+    + '</div>'
+}
+function renderOverview() {
+  const sorted = [...systemsCache].sort((a, b) => a.name.localeCompare(b.name))
+  const solo = appsCache.filter(a => !systemsCache.some(s => s.members.includes(a.name)))
+  let html = '<div class="ovhead"><h2>overview</h2><span>' + systemsCache.length + ' systems - ' + appsCache.length + ' apps - click a tile to fly in</span></div>'
+  html += sorted.map(sys => tileHtml(sys.name, 'cab-' + sys.name, appsCache.filter(a => sys.members.includes(a.name)), true)).join('')
+  if (solo.length) html += tileHtml('slab', 'cab-slab', solo, false)
+  document.getElementById('overview').innerHTML = html
 }
 
 function tick() {
