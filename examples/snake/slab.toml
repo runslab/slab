@@ -1,0 +1,5 @@
+# slab arcade — browser snake; relays scores to the private scoreboard
+name = "snake"
+type = "service"
+port = 3000
+secrets = ["SCORE_URL"]

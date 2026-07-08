@@ -1,0 +1,6 @@
+# Sovereign patient lake — Great Lakes (Toronto)
+name = "lake-ontario"
+type = "service"
+port = 3000
+[env]
+REGION = "Great Lakes (Toronto)"

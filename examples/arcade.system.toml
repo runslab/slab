@@ -1,0 +1,11 @@
+# The fun system: a game wired to a private scoreboard
+name = "arcade"
+
+[apps.snake]
+source = "./snake"
+
+[apps.scores]
+source = "./scores"
+
+[wires]
+"snake.SCORE_URL" = "http://scores:3000"

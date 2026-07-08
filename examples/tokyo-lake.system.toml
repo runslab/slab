@@ -1,0 +1,11 @@
+# Sovereign healthcare lake — Kanto (Tokyo)
+name = "tokyo-lake"
+
+[apps.lake-tokyo]
+source = "./lake-tokyo"
+
+[apps.feeder-tokyo]
+source = "./feeder-tokyo"
+
+[wires]
+"feeder-tokyo.LAKE_URL" = "http://lake-tokyo:3000"

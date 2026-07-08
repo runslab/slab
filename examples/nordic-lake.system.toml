@@ -1,0 +1,11 @@
+# Sovereign healthcare lake — Nordic (Oslo)
+name = "nordic-lake"
+
+[apps.lake-nordic]
+source = "./lake-nordic"
+
+[apps.feeder-nordic]
+source = "./feeder-nordic"
+
+[wires]
+"feeder-nordic.LAKE_URL" = "http://lake-nordic:3000"

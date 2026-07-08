@@ -1,0 +1,11 @@
+# Sovereign healthcare lake — Great Lakes (Toronto)
+name = "ontario-lake"
+
+[apps.lake-ontario]
+source = "./lake-ontario"
+
+[apps.feeder-ontario]
+source = "./feeder-ontario"
+
+[wires]
+"feeder-ontario.LAKE_URL" = "http://lake-ontario:3000"

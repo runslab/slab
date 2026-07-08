@@ -1,0 +1,5 @@
+# Private worker: feeds synthetic admissions into lake-nordic via the system wire
+name = "feeder-nordic"
+type = "service"
+port = 3000
+public = false

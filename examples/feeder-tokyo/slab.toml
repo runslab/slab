@@ -1,0 +1,5 @@
+# Private worker: feeds synthetic admissions into lake-tokyo via the system wire
+name = "feeder-tokyo"
+type = "service"
+port = 3000
+public = false

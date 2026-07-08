@@ -221,7 +221,7 @@ export function dashboardHtml(proxyPort: number): string {
   .sled i.on:nth-child(6), .sled i.on:nth-child(7) { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
   .sled i.on:nth-child(8) { background: var(--red); box-shadow: 0 0 5px var(--red); }
   .sleeping .sled i.on, .stopped .sled i.on, .created .sled i.on { background: #4a4d55; box-shadow: none; }
-  .bay:not(.open):hover .unit { box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 8px 18px rgba(0,0,0,.45); }
+
   .unit::before, .unit::after {
     content: ''; position: absolute; width: 5px; height: 5px; border-radius: 50%;
     background: var(--groove); box-shadow: inset 0 1px 1px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05);
@@ -417,8 +417,10 @@ const hist = {}          // name -> recent reqPerMin samples
 const openBays = new Set()  // names of flipped-open units (persists across refresh)
 let appsCache = []
 let systemsCache = []
-function toggle(name) {
-  if (openBays.has(name)) openBays.delete(name); else openBays.add(name)
+function toggle() {
+  // one gesture, whole rack: flip every board together
+  if (openBays.size) openBays.clear()
+  else for (const a of appsCache) openBays.add(a.name)
   render()
 }
 async function act(name, verb) {
@@ -518,8 +520,8 @@ function bayHtml(a, i) {
     + '<div class="sled">' + sled + '</div>'
     + '<button class="pwr" title="' + (a.state === 'running' ? 'power off (stop)' : 'power on (start)') + '"'
     +   ' onclick="event.stopPropagation(); act(\\'' + a.name + '\\', \\'' + (a.state === 'running' ? 'stop' : 'start') + '\\')"></button>'
-    + '<div class="plate" onclick="toggle(\\'' + a.name + '\\')" title="open unit">'
-    +   '<div class="name">' + esc(a.name) + '<small>' + a.state + '</small><span class="hint">▸ open</span></div>'
+    + '<div class="plate" onclick="toggle()" title="flip all boards">'
+    +   '<div class="name">' + esc(a.name) + '<small>' + a.state + '</small><span class="hint">▸ flip</span></div>'
     +   '<div class="spec"><b>' + a.manifest.type + '</b> · ' + (a.manifest.image ? esc(a.manifest.image) : 'dockerfile')
     +     (a.manifest.postgres ? ' · <b>postgres</b>' : '') + ' · v' + a.version + ' · deployed ' + rel(a.deployedAt) + '</div>'
     +   '<div class="routes" onclick="event.stopPropagation()">'
@@ -548,7 +550,7 @@ function bayHtml(a, i) {
     + '</div>'
     + '</div></div>'
     // back
-    + '<div class="face back"><div class="board" onclick="toggle(\\'' + a.name + '\\')">' + boardHtml(a) + '</div></div>'
+    + '<div class="face back"><div class="board" onclick="toggle()">' + boardHtml(a) + '</div></div>'
     + '</div></div>'
 }
 function channelInfo(rackKey) {

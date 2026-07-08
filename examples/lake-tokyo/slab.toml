@@ -1,0 +1,6 @@
+# Sovereign patient lake — Kanto (Tokyo)
+name = "lake-tokyo"
+type = "service"
+port = 3000
+[env]
+REGION = "Kanto (Tokyo)"

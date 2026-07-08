@@ -1,0 +1,6 @@
+# Sovereign patient lake — Nordic (Oslo)
+name = "lake-nordic"
+type = "service"
+port = 3000
+[env]
+REGION = "Nordic (Oslo)"

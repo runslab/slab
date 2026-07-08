@@ -1,0 +1,5 @@
+# Private scoreboard — reachable only inside the arcade system
+name = "scores"
+type = "service"
+port = 3000
+public = false
