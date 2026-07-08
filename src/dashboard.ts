@@ -629,6 +629,23 @@ function toggleListen() {
 }
 // pentatonic minor over two octaves — any combination harmonizes
 const SCALE = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22]
+// each rack (system cabinet) gets its own stereo position + waveform
+const RACK_WAVES = ['triangle', 'sine', 'square', 'sawtooth']
+function rackOrder() {
+  const names = [...systemsCache].sort((a, b) => a.name.localeCompare(b.name)).map(s => s.name)
+  const solo = appsCache.some(a => !systemsCache.some(s => s.members.includes(a.name)))
+  return solo ? [...names, null] : names   // null = the standalone "slab" rack
+}
+function rackOf(appName) {
+  const sys = [...systemsCache].sort((a, b) => a.name.localeCompare(b.name)).find(s => s.members.includes(appName))
+  return sys ? sys.name : null
+}
+function rackChannel(appName) {
+  const racks = rackOrder()
+  const idx = Math.max(0, racks.indexOf(rackOf(appName)))
+  const pan = racks.length > 1 ? -0.8 + (1.6 * idx) / (racks.length - 1) : 0
+  return { pan, wave: RACK_WAVES[idx % RACK_WAVES.length] }
+}
 function hashStr(str) {
   let h = 0
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0
@@ -639,14 +656,24 @@ function blip(app) {
   const semi = SCALE[hashStr(app) % SCALE.length]
   const freq = 220 * Math.pow(2, semi / 12)
   const t = audioCtx.currentTime
+  const ch = rackChannel(app)
   const osc = audioCtx.createOscillator()
   const gain = audioCtx.createGain()
-  osc.type = 'triangle'
+  osc.type = ch.wave
   osc.frequency.value = freq
+  const vol = ch.wave === 'square' || ch.wave === 'sawtooth' ? 0.05 : 0.09
   gain.gain.setValueAtTime(0.001, t)
-  gain.gain.exponentialRampToValueAtTime(0.09, t + 0.012)
+  gain.gain.exponentialRampToValueAtTime(vol, t + 0.012)
   gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22)
-  osc.connect(gain).connect(audioCtx.destination)
+  let tail = gain
+  if (audioCtx.createStereoPanner) {
+    const panner = audioCtx.createStereoPanner()
+    panner.pan.value = ch.pan
+    gain.connect(panner)
+    tail = panner
+  }
+  tail.connect(audioCtx.destination)
+  osc.connect(gain)
   osc.start(t)
   osc.stop(t + 0.25)
 }
@@ -694,7 +721,14 @@ function drawViz() {
   // motion trails: translucent fade instead of clear (screensaver energy)
   ctx.fillStyle = 'rgba(11,12,9,0.28)'
   ctx.fillRect(0, 0, W, H)
-  const apps = appsCache
+  const racks = rackOrder()
+  const apps = racks.flatMap(r => appsCache.filter(a => rackOf(a.name) === r))
+  const bounds = []
+  let acc = 0
+  for (const r of racks) {
+    acc += appsCache.filter(a => rackOf(a.name) === r).length
+    bounds.push(acc)
+  }
   if (apps.length) {
     const bw = W / apps.length
     const ac = accentColor()
@@ -720,6 +754,9 @@ function drawViz() {
       ctx.fillRect(x, Math.max(2, H - pk - 3), w, 2)
       energy[name] = e * 0.93
     })
+    // rack channel separators
+    ctx.fillStyle = '#26282e'
+    for (const b of bounds.slice(0, -1)) ctx.fillRect(b * bw - 1, 6, 1, H - 12)
   }
   requestAnimationFrame(drawViz)
 }

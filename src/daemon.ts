@@ -470,8 +470,10 @@ async function main(): Promise<void> {
         playTimer = null
         return
       }
+      // sleeping functions are included on purpose: the request wakes them,
+      // so pressing play literally powers up the whole rack
       const targets = Object.values(state.apps).filter(
-        (a) => a.state === 'running' && a.manifest.public !== false && a.hostPort != null
+        (a) => (a.state === 'running' || a.state === 'sleeping') && a.manifest.public !== false && a.hostPort != null
       )
       if (!targets.length) return
       const app = targets[idx % targets.length]
