@@ -434,7 +434,7 @@ function openSettings() {
   document.getElementById('dbody').innerHTML =
     '<div class="setrow"><span class="k">accent color</span>'
     + '<input type="color" id="accent-input" value="' + (localStorage.getItem('slab-accent') ?? '#ffb454') + '" oninput="setAccent(this.value)">'
-    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="setAccent(\'' + c + '\')"></i>').join('') + '</span>'
+    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="setAccent(\\'' + c + '\\')"></i>').join('') + '</span>'
     + '</div>'
     + '<div class="setrow"><span class="k">state</span><span style="color:var(--faint)">~/.slab · state.json, secrets/, repos/</span></div>'
   drawer.style.display = 'block'
