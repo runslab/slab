@@ -465,11 +465,32 @@ async function main(): Promise<void> {
     res.status(status).json({ error: err.message || 'internal error' })
   })
 
+  // Live event stream (SSE) — the dashboard's audio monitor listens here
+  const sseClients = new Set<Response>()
+  function broadcast(event: Record<string, unknown>): void {
+    const line = `data: ${JSON.stringify(event)}\n\n`
+    for (const client of sseClients) {
+      try { client.write(line) } catch { sseClients.delete(client) }
+    }
+  }
+
+  api.get('/v1/events', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+    res.write('data: {"type":"hello"}\n\n')
+    sseClients.add(res)
+    req.on('close', () => { sseClients.delete(res) })
+  })
+
   const lastRequestSaveAt = new Map<string, number>()
   function onRequest(name: string): void {
     const app = state.apps[name]
     if (!app) return
     app.lastRequestAt = new Date().toISOString()
+    broadcast({ type: 'request', app: name })
     const now = Date.now()
     const times = reqTimes.get(name) ?? []
     times.push(now)

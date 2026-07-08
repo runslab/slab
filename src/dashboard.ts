@@ -103,6 +103,37 @@ export function dashboardHtml(proxyPort: number): string {
   @keyframes cursor { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .cabmark::after { animation: none; } }
 
+  /* monitor deck: spectrum analyzer + listen knob (a component above the cabinets) */
+  .deck {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+      linear-gradient(180deg, #202127 0%, #17181d 18%, #101116 60%, #15161b 100%);
+    border: 1px solid #2b2d34; border-radius: 8px;
+    padding: 12px 18px; margin-bottom: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(0,0,0,.6), 0 5px 14px rgba(0,0,0,.45);
+  }
+  .knobwrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .knob {
+    width: 40px; height: 40px; border-radius: 50%; cursor: pointer; position: relative; padding: 0;
+    background: radial-gradient(circle at 35% 30%, #33363e, #14151a 75%);
+    border: 1px solid #3a3d45;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 2px 5px rgba(0,0,0,.5);
+    transition: transform .25s ease;
+  }
+  .knob::after {
+    content: ''; position: absolute; left: 50%; top: 4px; width: 3px; height: 12px;
+    margin-left: -1.5px; border-radius: 2px; background: #6a6e78;
+    transition: background .2s;
+  }
+  .knob.on { transform: rotate(135deg); }
+  .knob.on::after { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .knobwrap .klbl { font-size: 8px; letter-spacing: .18em; color: var(--faint); text-transform: uppercase; }
+  .knob.on + .klbl { color: var(--accent); }
+  #viz { width: 100%; height: 64px; display: block; background: #0b0c09; border: 1px solid #26282e; border-radius: 4px;
+    box-shadow: inset 0 1px 5px rgba(0,0,0,.8); }
+  .deck .lcd { align-self: center; }
+
   /* ── 3D flip machinery ─────────────────────────────────────────────── */
   .bay { perspective: 1400px; margin-bottom: 10px; }
   .bay:last-child { margin-bottom: 0; }
@@ -289,6 +320,11 @@ export function dashboardHtml(proxyPort: number): string {
     <div class="stat"><b id="s-rpm">–<em>/m</em></b><span>requests</span></div>
   </div>
 </header>
+<div class="deck">
+  <div class="knobwrap"><button class="knob" id="knob" onclick="toggleListen()"></button><span class="klbl">listen</span></div>
+  <canvas id="viz" width="800" height="64"></canvas>
+  <span class="lcd" id="deck-lcd">000 evt/min</span>
+</div>
 <div class="layout">
   <div class="spine">
     <span data-nav="status" onclick="navStatus()">S</span>
@@ -572,6 +608,100 @@ function openDiagram(sysName) {
   document.getElementById('dg-body').innerHTML = svg
   document.getElementById('overlay').style.display = 'block'
 }
+
+
+// ── monitor deck: live events -> spectrum visualizer + pentatonic audio ──────
+const energy = {}      // app -> 0..1 bar energy
+const peaks = {}       // app -> peak-hold height
+let evtTimes = []      // rolling minute of event timestamps
+let audioCtx = null
+let listening = false
+function toggleListen() {
+  listening = !listening
+  document.getElementById('knob').classList.toggle('on', listening)
+  if (listening && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  if (listening && audioCtx.state === 'suspended') audioCtx.resume()
+}
+// pentatonic minor over two octaves — any combination harmonizes
+const SCALE = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22]
+function hashStr(str) {
+  let h = 0
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+function blip(app) {
+  if (!listening || !audioCtx) return
+  const semi = SCALE[hashStr(app) % SCALE.length]
+  const freq = 220 * Math.pow(2, semi / 12)
+  const t = audioCtx.currentTime
+  const osc = audioCtx.createOscillator()
+  const gain = audioCtx.createGain()
+  osc.type = 'triangle'
+  osc.frequency.value = freq
+  gain.gain.setValueAtTime(0.001, t)
+  gain.gain.exponentialRampToValueAtTime(0.09, t + 0.012)
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22)
+  osc.connect(gain).connect(audioCtx.destination)
+  osc.start(t)
+  osc.stop(t + 0.25)
+}
+function onLiveEvent(app) {
+  energy[app] = Math.min(1, (energy[app] ?? 0) + 0.45)
+  evtTimes.push(Date.now())
+  blip(app)
+}
+const es = new EventSource('/v1/events')
+es.onmessage = (m) => {
+  try {
+    const e = JSON.parse(m.data)
+    if (e.type === 'request' && e.app) onLiveEvent(e.app)
+  } catch { /* ignore */ }
+}
+function accentColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ffb454'
+}
+function drawViz() {
+  const cv = document.getElementById('viz')
+  const ctx = cv.getContext('2d')
+  const W = cv.width, H = cv.height
+  // motion trails: translucent fade instead of clear (screensaver energy)
+  ctx.fillStyle = 'rgba(11,12,9,0.28)'
+  ctx.fillRect(0, 0, W, H)
+  const apps = appsCache
+  if (apps.length) {
+    const bw = W / apps.length
+    const ac = accentColor()
+    const now = Date.now() / 1000
+    apps.forEach((a, i) => {
+      const name = a.name
+      let e = energy[name] ?? 0
+      // idle shimmer so the deck breathes even in silence
+      const shimmer = a.state === 'running' ? 0.03 + 0.02 * Math.sin(now * 1.7 + i * 1.3) : 0
+      const h = Math.max(2, (e + shimmer) * (H - 14))
+      const x = i * bw + bw * 0.18, w = bw * 0.64
+      ctx.fillStyle = ac
+      ctx.globalAlpha = 0.28 + 0.72 * Math.min(1, e + shimmer)
+      ctx.shadowColor = ac
+      ctx.shadowBlur = e > 0.05 ? 14 : 3
+      ctx.fillRect(x, H - h, w, h)
+      ctx.shadowBlur = 0
+      ctx.globalAlpha = 1
+      // falling peak-hold cap
+      const pk = Math.max(peaks[name] ?? 0, h)
+      peaks[name] = pk - 0.6
+      ctx.fillStyle = '#f2f6ef'
+      ctx.fillRect(x, Math.max(2, H - pk - 3), w, 2)
+      energy[name] = e * 0.93
+    })
+  }
+  requestAnimationFrame(drawViz)
+}
+requestAnimationFrame(drawViz)
+setInterval(() => {
+  const now = Date.now()
+  evtTimes = evtTimes.filter(t => now - t < 60_000)
+  document.getElementById('deck-lcd').textContent = String(evtTimes.length).padStart(3, '0') + ' evt/min'
+}, 2000)
 
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString()
