@@ -14,6 +14,10 @@ dashboard, or AI agents speaking MCP.
 
 **[jasonmimick.github.io/slab](https://jasonmimick.github.io/slab/)** · [docs](docs/README.md) · [install](#install)
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/jasonmimick/slab?quickstart=1)
+
+*↑ try slab in your browser — no install. Docker-in-Docker in a free Codespace: the daemon boots, the rack seeds itself, open port 7766.*
+
 </div>
 
 ```text
