@@ -432,50 +432,8 @@ if (savedAccent) document.documentElement.style.setProperty('--accent', savedAcc
 function setAccent(v) {
   document.documentElement.style.setProperty('--accent', v)
   localStorage.setItem('slab-accent', v)
-  const hex = document.getElementById('accent-hex')
-  if (hex) hex.textContent = v
-}
-function hexToHsl(hex) {
-  const n = parseInt(hex.slice(1), 16)
-  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
-  const l = (max + min) / 2
-  if (!d) return [0, 0, Math.round(l * 100)]
-  const s = d / (1 - Math.abs(2 * l - 1))
-  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
-  h = Math.round(h * 60); if (h < 0) h += 360
-  return [h, Math.round(s * 100), Math.round(l * 100)]
-}
-function hslToHex(h, s, l) {
-  s /= 100; l /= 100
-  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2
-  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
-  const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
-  return '#' + to(r) + to(g) + to(b)
-}
-function slide() {
-  const h = +document.getElementById('sl-h').value
-  const s = +document.getElementById('sl-s').value
-  const l = +document.getElementById('sl-l').value
-  setAccent(hslToHex(h, s, l))
-  paintTracks(h, s, l)
-}
-function paintTracks(h, s, l) {
-  document.getElementById('sl-s').style.background =
-    'linear-gradient(90deg, hsl(' + h + ',0%,' + l + '%), hsl(' + h + ',100%,' + l + '%))'
-  document.getElementById('sl-l').style.background =
-    'linear-gradient(90deg, #000, hsl(' + h + ',' + s + '%,50%), #fff)'
-}
-function syncSliders(hex) {
-  const [h, s, l] = hexToHsl(hex)
-  document.getElementById('sl-h').value = h
-  document.getElementById('sl-s').value = s
-  document.getElementById('sl-l').value = l
-  paintTracks(h, s, l)
-}
-function pickPreset(c) {
-  setAccent(c)
-  syncSliders(c)
+  const inp = document.getElementById('accent-input')
+  if (inp) inp.value = v
 }
 function openSettings() {
   const presets = ['#ffb454', '#6ee7b7', '#82b8e8', '#f07f78', '#d8b4fe', '#e2e8f0']
@@ -484,16 +442,10 @@ function openSettings() {
   document.getElementById('dapps').innerHTML = ''
   document.getElementById('dbody').innerHTML =
     '<div class="setrow"><span class="k">accent color</span>'
-    + '<span class="preview"><span class="chipbox"></span><code id="accent-hex">' + cur + '</code></span>'
-    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="pickPreset(\\'' + c + '\\')"></i>').join('') + '</span>'
-    + '</div>'
-    + '<div class="setrow sliders">'
-    +   '<div class="srow"><label>hue</label><input type="range" id="sl-h" min="0" max="360" oninput="slide()" style="background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)"></div>'
-    +   '<div class="srow"><label>sat</label><input type="range" id="sl-s" min="0" max="100" oninput="slide()"></div>'
-    +   '<div class="srow"><label>lum</label><input type="range" id="sl-l" min="20" max="85" oninput="slide()"></div>'
+    + '<input type="color" id="accent-input" value="' + cur + '" oninput="setAccent(this.value)">'
+    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="setAccent(\\'' + c + '\\')"></i>').join('') + '</span>'
     + '</div>'
     + '<div class="setrow"><span class="k">state</span><span style="color:var(--faint)">~/.slab · state.json, secrets/, repos/</span></div>'
-  syncSliders(cur)
   drawer.style.display = 'block'
 }
 load()
