@@ -181,9 +181,13 @@ Rough order; nothing here is promised, everything here is intended.
    that span nodes ([docs/design/trunks.md](docs/design/trunks.md)): put
    `node = "garage"` on a member and a per-system trunk container on each
    node carries `http://<member>:<port>` across machines unchanged, private
-   members included. Next: one dashboard reads many nodes (a rack wall per
-   node), `slab --node <name>` targeting, and jobs scheduled onto whichever
-   node has capacity — a bunch of slabs, one hyperscaler.
+   members included. Also done: the **solar system** (zoom out and every
+   node renders as its own band — sun badge, systems as tiles, dead nodes
+   shown honestly) and **`slab --node <name>`** targeting (any command
+   against any peer: `slab --node garage deploy owner/repo`, resolved from
+   the peer registry, tokens included). Next: `slab run --node any` — jobs
+   scheduled onto whichever node has capacity — a bunch of slabs, one
+   hyperscaler.
 7. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
    interface already isolates Docker; a second driver renders the same
    manifest to Fargate/Lambda/RDS (or Fly machines). One manifest, one verb

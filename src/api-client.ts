@@ -58,6 +58,7 @@ export function clientFor(base: string, token?: string, timeoutMs?: number) {
     jobLogs: (id: string, tail = 100) => req<{ logs: string }>('GET', `/v1/jobs/${id}/logs?tail=${tail}`),
     cancelJob: (id: string) => req<{ job: JobRecord }>('POST', `/v1/jobs/${id}/cancel`),
     removeJob: (id: string) => req<void>('DELETE', `/v1/jobs/${id}`),
+    play: (seconds: number) => req<{ playing: boolean; seconds: number }>('POST', '/v1/play', { seconds }),
     listSystems: () => req<{ systems: SystemRecord[] }>('GET', '/v1/systems'),
     createSystem: (sourceFile: string) => req<{ system: SystemRecord }>('POST', '/v1/systems', { sourceFile }),
     deploySystem: (name: string) => req<{ system: SystemRecord; apps: AppRecord[] }>('POST', `/v1/systems/${name}/deploy`),

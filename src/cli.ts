@@ -5,7 +5,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { execSync, spawn } from 'child_process'
 import { Command } from 'commander'
-import { client, appUrl } from './api-client'
+import { client, clientFor, appUrl } from './api-client'
 import { loadManifest } from './manifest'
 import { looksLikeGitUrl } from './git'
 import { slabDir, loadNodeConfigFile, saveNodeConfigFile } from './state'
@@ -55,9 +55,9 @@ function relativeTime(iso: string | null): string {
 async function ensureApp(sourceDir: string): Promise<string> {
   const manifest = loadManifest(sourceDir)
   try {
-    await client.getApp(manifest.name)
+    await api.getApp(manifest.name)
   } catch {
-    await client.createApp({ sourceDir })
+    await api.createApp({ sourceDir })
   }
   return manifest.name
 }
@@ -72,8 +72,37 @@ function sanitizeName(raw: string): string {
   return NAME_RE.test(name) ? name : 'app'
 }
 
+// Every command talks through `api`. It starts as the local daemon's client;
+// --node <name> re-points it at a peer (resolved from the local peer registry,
+// which carries each peer's URL + token).
+let api = client
+
+// Commands that touch THIS machine (files, daemon process) — meaningless remotely.
+const LOCAL_ONLY = new Set(['upgrade', 'open', 'close', 'token', 'advertise', 'daemon', 'init'])
+
 const program = new Command()
 program.name('slab').description('tiny local paas').version('1.0.0')
+program.option('-N, --node <name>', 'target a peer node instead of the local daemon (see: slab peer ls)')
+
+program.hook('preAction', async (_thisCommand, actionCommand) => {
+  const target = program.opts().node as string | undefined
+  if (!target) return
+  if (LOCAL_ONLY.has(actionCommand.name())) {
+    fail(new Error(`"slab ${actionCommand.name()}" runs on the machine itself — ssh to ${target} for that`))
+  }
+  try {
+    const [{ node }, { peers }] = await Promise.all([client.health(), client.listPeers()])
+    if (target === node) return   // targeting ourselves — stay local
+    const peer = peers.find((p) => p.name === target)
+    if (!peer) {
+      const known = [node ? `${node} (local)` : null, ...peers.map((p) => p.name)].filter(Boolean).join(', ')
+      throw new Error(`unknown node "${target}" — known nodes: ${known || 'none'}. Register with: slab peer add ${target} <url> --token <t>`)
+    }
+    api = clientFor(peer.url, peer.token)
+  } catch (err) {
+    fail(err)
+  }
+})
 
 program
   .command('create [source]')
@@ -81,9 +110,9 @@ program
   .action(action(async (source?: string) => {
     const arg = source ?? process.cwd()
     const { app } = looksLikeGitUrl(arg) && !isDir(path.resolve(arg))
-      ? await client.createApp({ gitUrl: arg })
-      : await client.createApp({ sourceDir: path.resolve(arg) })
-    const { proxyPort } = await client.health()
+      ? await api.createApp({ gitUrl: arg })
+      : await api.createApp({ sourceDir: path.resolve(arg) })
+    const { proxyPort } = await api.health()
     console.log(`created ${app.name} (${app.manifest.type}) -> ${appUrl(app, proxyPort)}`)
   }))
 
@@ -95,19 +124,19 @@ program
     const asDir = path.resolve(arg)
     let name: string
     if (looksLikeGitUrl(arg) && !isDir(asDir)) {
-      const { app } = await client.createApp({ gitUrl: arg }).catch(async (e: Error) => {
+      const { app } = await api.createApp({ gitUrl: arg }).catch(async (e: Error) => {
         // 409 = already registered; find it by checkout name convention
         if (!/exists/.test(e.message)) throw e
         const m = /app "([^"]+)"/.exec(e.message)
-        return client.getApp(m ? m[1] : arg)
+        return api.getApp(m ? m[1] : arg)
       })
       name = app.name
     } else {
       name = isDir(asDir) ? await ensureApp(asDir) : arg
     }
-    const { app } = await client.deploy(name)
+    const { app } = await api.deploy(name)
     if (app.state === 'running') {
-      const { proxyPort } = await client.health()
+      const { proxyPort } = await api.health()
       console.log(`deployed ${app.name} -> ${appUrl(app, proxyPort)} (v${app.version})`)
     } else {
       console.log(`${app.name}: ${app.state}${app.error ? ` — ${app.error}` : ''}`)
@@ -120,9 +149,9 @@ program
   .action(action(async (file: string) => {
     const asPath = path.resolve(file)
     const sourceFile = isDir(asPath) ? path.join(asPath, 'system.toml') : asPath
-    const { system } = await client.createSystem(sourceFile)
-    const { system: deployed, apps } = await client.deploySystem(system.name)
-    const { proxyPort } = await client.health()
+    const { system } = await api.createSystem(sourceFile)
+    const { system: deployed, apps } = await api.deploySystem(system.name)
+    const { proxyPort } = await api.health()
     const byName = new Map(apps.map((app) => [app.name, app]))
     const memberNodes = deployed.memberNodes ?? {}
     for (const name of deployed.members) {
@@ -173,25 +202,25 @@ program
       env,
       timeout: opts.timeout,
     }
-    let { job } = await client.createJob(spec)
+    let { job } = await api.createJob(spec)
     console.log(`job ${job.id} — ${job.image ?? 'dockerfile build'}${cmd.length ? ' — ' + cmd.join(' ') : ''}`)
     if (opts.detach) return
 
     process.on('SIGINT', async () => {
       console.error(`\ncanceling ${job.id}…`)
-      await client.cancelJob(job.id).catch(() => { /* may already be done */ })
+      await api.cancelJob(job.id).catch(() => { /* may already be done */ })
       process.exit(130)
     })
     let lastState = job.state
     while (!JOB_DONE.has(job.state)) {
       await new Promise((r) => setTimeout(r, 1000))
-      job = (await client.getJob(job.id)).job
+      job = (await api.getJob(job.id)).job
       if (job.state !== lastState) {
         console.log(`  ${job.state}`)
         lastState = job.state
       }
     }
-    const { logs } = await client.jobLogs(job.id, 1000)
+    const { logs } = await api.jobLogs(job.id, 1000)
     if (logs.trim()) console.log('\n' + logs.trimEnd())
     if (job.state === 'succeeded') {
       console.log(`\n${job.id} succeeded in ${jobRuntime(job)}`)
@@ -205,7 +234,7 @@ program
   .command('jobs')
   .description('list jobs (newest first)')
   .action(action(async () => {
-    const { jobs } = await client.listJobs()
+    const { jobs } = await api.listJobs()
     const header = ['ID', 'STATE', 'EXIT', 'RUNTIME', 'COMMAND', 'CREATED']
     const cols = jobs.map((j) => [
       j.id,
@@ -228,7 +257,7 @@ job
   .description('print job logs')
   .option('-n, --tail <n>', 'number of lines', '100')
   .action(action(async (id: string, opts: { tail: string }) => {
-    const { logs } = await client.jobLogs(id, Number(opts.tail))
+    const { logs } = await api.jobLogs(id, Number(opts.tail))
     console.log(logs)
   }))
 
@@ -236,7 +265,7 @@ job
   .command('cancel <id>')
   .description('cancel a queued/running job')
   .action(action(async (id: string) => {
-    await client.cancelJob(id)
+    await api.cancelJob(id)
     console.log(`canceling ${id}`)
   }))
 
@@ -244,7 +273,7 @@ job
   .command('rm <id>')
   .description('remove a job (container + record)')
   .action(action(async (id: string) => {
-    await client.removeJob(id)
+    await api.removeJob(id)
     console.log(`removed ${id}`)
   }))
 
@@ -252,7 +281,7 @@ program
   .command('list')
   .description('list apps')
   .action(action(async () => {
-    const [{ apps }, { proxyPort }] = await Promise.all([client.listApps(), client.health()])
+    const [{ apps }, { proxyPort }] = await Promise.all([api.listApps(), api.health()])
     const rows = Object.values(apps) as AppRecord[]
     const header = ['NAME', 'TYPE', 'STATE', 'URL', 'LAST DEPLOY']
     const cols = rows.map((app) => [
@@ -272,7 +301,7 @@ program
   .command('systems')
   .description('list systems')
   .action(action(async () => {
-    const { systems } = await client.listSystems()
+    const { systems } = await api.listSystems()
     const rows = systems as SystemRecord[]
     const header = ['NAME', 'MEMBERS', 'WIRES', 'DEPLOYED']
     const cols = rows.map((sys) => [
@@ -292,7 +321,7 @@ program
   .description('print app logs')
   .option('-n, --tail <n>', 'number of lines', '100')
   .action(action(async (name: string, opts: { tail: string }) => {
-    const { logs } = await client.logs(name, Number(opts.tail))
+    const { logs } = await api.logs(name, Number(opts.tail))
     console.log(logs)
   }))
 
@@ -300,7 +329,7 @@ program
   .command('stop <name>')
   .description('stop an app')
   .action(action(async (name: string) => {
-    await client.stop(name)
+    await api.stop(name)
     console.log(`stopped ${name}`)
   }))
 
@@ -308,7 +337,7 @@ program
   .command('start <name>')
   .description('start an app')
   .action(action(async (name: string) => {
-    await client.start(name)
+    await api.start(name)
     console.log(`started ${name}`)
   }))
 
@@ -316,7 +345,7 @@ program
   .command('rm <name>')
   .description('remove an app')
   .action(action(async (name: string) => {
-    await client.removeApp(name)
+    await api.removeApp(name)
     console.log(`removed ${name}`)
   }))
 
@@ -336,7 +365,7 @@ secret
       values[key] = value
     }
     if (Object.keys(values).length === 0) throw new Error('no KEY=VALUE pairs given')
-    await client.setSecrets(name, values)
+    await api.setSecrets(name, values)
     console.log(`set ${Object.keys(values).join(', ')} for ${name}`)
   }))
 
@@ -344,7 +373,7 @@ secret
   .command('ls <name>')
   .description('list secret keys')
   .action(action(async (name: string) => {
-    const { keys } = await client.listSecretKeys(name)
+    const { keys } = await api.listSecretKeys(name)
     for (const k of keys) console.log(k)
   }))
 
@@ -352,7 +381,7 @@ program
   .command('url <name>')
   .description('print an app url')
   .action(action(async (name: string) => {
-    const [{ app }, { proxyPort }] = await Promise.all([client.getApp(name), client.health()])
+    const [{ app }, { proxyPort }] = await Promise.all([api.getApp(name), api.health()])
     console.log(appUrl(app, proxyPort))
     if (app.publicUrl) console.log(app.publicUrl)
   }))
@@ -361,7 +390,7 @@ program
   .command('expose <name>')
   .description('open a public https url (cloudflare quick tunnel)')
   .action(action(async (name: string) => {
-    const { app } = await client.expose(name)
+    const { app } = await api.expose(name)
     console.log(`exposed ${app.name} -> ${app.publicUrl}`)
   }))
 
@@ -369,7 +398,7 @@ program
   .command('hide <name>')
   .description('close the public url')
   .action(action(async (name: string) => {
-    await client.hide(name)
+    await api.hide(name)
     console.log(`hidden ${name}`)
   }))
 
@@ -379,7 +408,7 @@ system
   .command('rm <name>')
   .description('detach a system (removes the network + record, keeps member apps)')
   .action(action(async (name: string) => {
-    await client.removeSystem(name)
+    await api.removeSystem(name)
     console.log(`detached system ${name} (apps kept)`)
   }))
 
@@ -387,19 +416,15 @@ program
   .command('play [seconds]')
   .description('play the rack: rhythmic healthchecks across running apps (hear them on the dashboard)')
   .action(action(async (seconds?: string) => {
-    const res = await fetch((process.env.SLAB_DAEMON_URL ?? 'http://127.0.0.1:7766') + '/v1/play', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seconds: Number(seconds ?? 45) }),
-    })
-    if (!res.ok) throw new Error('daemon refused: ' + res.status)
-    console.log('playing — open http://localhost:7766 and turn the listen knob')
+    await api.play(Number(seconds ?? 45))
+    console.log('playing — open the dashboard and turn the listen knob')
   }))
 
 program
   .command('status')
   .description('daemon status')
   .action(action(async () => {
-    const { status, node, apps, proxyPort } = await client.health()
+    const { status, node, apps, proxyPort } = await api.health()
     console.log(`daemon: ${status}${node ? ` — node "${node}"` : ''} — ${apps} app${apps === 1 ? '' : 's'}, proxy :${proxyPort}`)
   }))
 
@@ -410,7 +435,7 @@ peerCmd
   .description('register a peer daemon, e.g. slab peer add garage http://garage:7766')
   .option('--token <token>', "the peer's SLAB_TOKEN (needed for non-loopback peers)")
   .action(action(async (name: string, url: string, opts: { token?: string }) => {
-    const { peer } = await client.setPeer(name, url, opts.token)
+    const { peer } = await api.setPeer(name, url, opts.token)
     console.log(`peer ${peer.name} -> ${peer.url}${peer.token ? ' (token set)' : ''}`)
   }))
 
@@ -418,7 +443,7 @@ peerCmd
   .command('ls')
   .description('list peers')
   .action(action(async () => {
-    const { peers } = await client.listPeers()
+    const { peers } = await api.listPeers()
     if (!peers.length) { console.log('no peers — add one: slab peer add <name> <url>'); return }
     for (const p of peers) console.log(`${p.name}\t${p.url}${p.token ? '\t(token)' : ''}`)
   }))
@@ -427,7 +452,7 @@ peerCmd
   .command('rm <name>')
   .description('unregister a peer (does not touch the peer daemon)')
   .action(action(async (name: string) => {
-    await client.removePeer(name)
+    await api.removePeer(name)
     console.log(`removed peer ${name}`)
   }))
 
@@ -451,6 +476,7 @@ async function restartDaemon(): Promise<void> {
     stdio: ['ignore', out, out],
   }).unref()
   for (let i = 0; i < 40; i++) {
+    // always the LOCAL daemon — restart never applies to a --node target
     try { await client.health(); return } catch { await new Promise((r) => setTimeout(r, 500)) }
   }
   throw new Error(`daemon did not come back — check ${path.join(slabDir(), 'daemon.log')}`)
@@ -472,7 +498,7 @@ program
     console.log('restarting daemon…')
     await restartDaemon()
     const sha = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim()
-    const { node, apps } = await client.health()
+    const { node, apps } = await api.health()
     console.log(`upgraded to ${sha} — node "${node}" back up with ${apps} apps`)
   }))
 
@@ -483,10 +509,10 @@ nodeCmd
   .description("print or set this node's name")
   .action(action(async (name?: string) => {
     if (name) {
-      const { node } = await client.setNode(name)
+      const { node } = await api.setNode(name)
       console.log(`node is now "${node}"`)
     } else {
-      const { node } = await client.health()
+      const { node } = await api.health()
       console.log(node ?? '(unnamed — set one with: slab node name <name>)')
     }
   }))

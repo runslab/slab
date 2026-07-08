@@ -58,6 +58,7 @@ slab node open --advertise garage.tailnet.ts.net   # what other nodes dial for t
 slab node token --rotate       # fresh token (re-run slab peer add on nodes that point here)
 slab node close                # back to loopback-only
 slab upgrade                   # git pull + rebuild + restart, config survives
+slab --node <peer> <anything>  # run any command against a peer: deploy, run, logs, list…
 ```
 
 Env vars override the file for one-off runs:
