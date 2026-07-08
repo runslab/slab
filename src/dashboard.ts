@@ -166,6 +166,20 @@ export function dashboardHtml(proxyPort: number): string {
   #bench-panel { background: linear-gradient(180deg, #17181d, #101116); border: 1px solid #2b2d34;
     border-radius: 10px; padding: 16px; position: sticky; top: 16px; }
   .bench-hint { color: var(--faint); font-size: 11px; text-align: center; padding: 30px 0; }
+  .mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .mcard { background: #101116; border: 1px solid #2b2d34; border-radius: 9px; overflow: hidden; cursor: pointer;
+    transition: transform .12s, border-color .12s; }
+  .mcard:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .mcard.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .mcshot { height: 132px; overflow: hidden; background: #fff; position: relative; }
+  .mcshot iframe { width: 840px; height: 528px; border: 0; transform: scale(.25); transform-origin: top left; pointer-events: none; }
+  .mcshot.off { display: flex; align-items: center; justify-content: center; background: #0b0c0e; color: var(--faint); font-size: 11px; }
+  .mcname { display: flex; align-items: center; gap: 7px; padding: 9px 11px 2px; font-size: 13px; font-weight: 700; }
+  .mcname .od { width: 8px; height: 8px; border-radius: 50%; background: #3a3d44; }
+  .mcname .od.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .mcname .od.sleeping { background: var(--blue); } .mcname .od.error { background: var(--red); }
+  .mcsub { padding: 0 11px 10px; font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; }
+  .mdiagram { background: linear-gradient(180deg, #101114, #0c0d10); border: 1px solid var(--groove); border-radius: 12px; padding: 16px; }
   .viewport { border: 1px solid #2b2d34; border-radius: 8px; overflow: hidden; margin-bottom: 14px; background: #0b0c0e; }
   .viewport .vpbar { display: flex; align-items: center; gap: 7px; padding: 5px 10px; font-size: 10px; color: var(--dim);
     background: linear-gradient(180deg, #1c1e24, #141519); border-bottom: 1px solid #26282e; }
@@ -524,7 +538,10 @@ function boardHtml(a) {
     + chip('created', rel(a.createdAt))
 }
 // Analog VU meter: needle swings with req/min (log scale). Pivot at (48,46).
-function vuMeter(rpm, state) {
+function vuAngle(rpm, state) {
+  return state !== 'running' ? -48 : -48 + Math.min(96, Math.log2(rpm + 1) * 16)
+}
+function vuMeter(rpm, state, name) {
   const angle = -48 + Math.min(96, Math.log2(rpm + 1) * 16)   // -48deg..+48deg
   const ticks = []
   for (let t = -48; t <= 48; t += 12) {
@@ -535,7 +552,7 @@ function vuMeter(rpm, state) {
     ticks.push('<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + (t > 24 ? 'var(--red)' : '#5f626a') + '" stroke-width="1.2"/>')
   }
   const dead = state !== 'running'
-  return '<svg class="vu" width="96" height="50" viewBox="0 0 96 50">'
+  return '<svg class="vu" data-app="' + (name ?? '') + '" width="96" height="50" viewBox="0 0 96 50">'
     + '<rect x="1" y="1" width="94" height="48" rx="5" fill="#0d0e0a" stroke="#2a2c26"/>'
     + '<ellipse cx="48" cy="46" rx="40" ry="38" fill="color-mix(in srgb, var(--accent) ' + (dead ? '4' : '10') + '%, transparent)"/>'
     + ticks.join('')
@@ -565,7 +582,7 @@ function bayHtml(a, i) {
     // front
     + '<div class="face"><div class="unit ' + a.state + '">'
     + '<div class="unum">U' + String(i + 1).padStart(2, '0') + '</div>'
-    + '<div class="sled">' + sled + '</div>'
+    + '<div class="sled" data-app="' + a.name + '">' + sled + '</div>'
     + '<button class="pwr" title="' + (a.state === 'running' ? 'power off (stop)' : 'power on (start)') + '"'
     +   ' onclick="event.stopPropagation(); act(\\'' + a.name + '\\', \\'' + (a.state === 'running' ? 'stop' : 'start') + '\\')"></button>'
     + '<div class="plate" onclick="toggle()" title="flip all boards">'
@@ -581,7 +598,7 @@ function bayHtml(a, i) {
     +   (a.error ? '<div class="errmsg">' + esc(a.error.slice(0, 140)) + '</div>' : '')
     + '</div>'
     + thumb(a)
-    + '<div class="meter">' + vuMeter(rpm, a.state) + '<span class="lcd">' + String(rpm).padStart(3, '0') + ' req/min</span><span class="spark">' + spark(a.name) + '</span></div>'
+    + '<div class="meter">' + vuMeter(rpm, a.state, a.name) + '<span class="lcd" data-app="' + a.name + '">' + String(rpm).padStart(3, '0') + ' req/min</span><span class="spark" data-app="' + a.name + '">' + spark(a.name) + '</span></div>'
     + '<div class="acts">'
     +   '<div class="row">'
     +     '<button onclick="act(\\'' + a.name + '\\',\\'deploy\\')">deploy</button>'
@@ -622,6 +639,30 @@ function cabinetHtml(title, apps, slim, sys) {
     + '<div class="cabmark">' + esc(title) + sub + '</div>'
     + '</div>'
 }
+// A structural signature: everything that changes the DOM SHAPE (not live
+// metrics). If unchanged, we skip innerHTML rebuild so iframes never reload —
+// live metrics get patched in place by updateDynamics() instead.
+function structSig() {
+  return JSON.stringify(appsCache.map(a => [a.name, a.state, a.manifest.public, a.exposed, a.hostPort != null, rackOf(a.name), openBays.has(a.name)]))
+    + '|' + JSON.stringify(systemsCache.map(s => [s.name, s.members]))
+}
+let lastStructSig = ''
+function updateDynamics() {
+  for (const a of appsCache) {
+    const rpm = a.reqPerMin ?? 0
+    const lcd = document.querySelector('.lcd[data-app="' + a.name + '"]')
+    if (lcd) lcd.textContent = String(rpm).padStart(3, '0') + ' req/min'
+    const needle = document.querySelector('.vu[data-app="' + a.name + '"] .needle')
+    if (needle) needle.style.transform = 'rotate(' + vuAngle(rpm, a.state).toFixed(1) + 'deg)'
+    const sledEl = document.querySelector('.sled[data-app="' + a.name + '"]')
+    if (sledEl) {
+      const lit = a.state === 'running' ? Math.min(8, 1 + Math.ceil(Math.log2(rpm + 1))) : 1
+      ;[...sledEl.children].forEach((el, k) => el.classList.toggle('on', k < lit))
+    }
+    const sp = document.querySelector('.spark[data-app="' + a.name + '"]')
+    if (sp) sp.innerHTML = spark(a.name)
+  }
+}
 function render() {
   const apps = appsCache
   const systems = systemsCache
@@ -630,8 +671,12 @@ function render() {
     container.innerHTML = '<div class="cabinet"><div class="vents"></div>'
       + '<div class="rack"><div class="empty">rack is empty — <code>slab deploy ./yourapp</code> mounts the first unit</div></div>'
       + '<div class="cabmark">slab</div></div>'
+    lastStructSig = ''
     return
   }
+  const sig = structSig()
+  if (sig === lastStructSig) { updateDynamics(); return }   // no structural change — keep iframes alive
+  lastStructSig = sig
   const sorted = [...systems].sort((x, y) => x.name.localeCompare(y.name))
   let html = sorted.map(s => cabinetHtml(s.name, apps.filter(a => s.members.includes(a.name)), true, s)).join('')
   const solo = apps.filter(a => !systems.some(s => s.members.includes(a.name)))
@@ -964,26 +1009,51 @@ function benchSelect(name) {
   benchSel = name
   benchRender()
 }
-function switchBench(name) {
-  benchSys = name
-  benchSel = null
-  benchRender()
+let benchShellKey = ''
+function memberCard(a) {
+  const canView = a.state === 'running' && a.manifest.public !== false && a.hostPort != null
+  const u = 'http://' + a.name + '.localhost:${proxyPort}/'
+  const preview = canView
+    ? '<div class="mcshot"><iframe src="' + u + '" loading="lazy" scrolling="no" sandbox="allow-scripts allow-same-origin"></iframe></div>'
+    : '<div class="mcshot off">' + (a.manifest.public === false ? '🔒 private' : a.state === 'sleeping' ? '● sleeping' : '○ ' + a.state) + '</div>'
+  return '<div class="mcard' + (benchSel === a.name ? ' sel' : '') + '" onclick="benchSelect(\\'' + a.name + '\\')">'
+    + preview
+    + '<div class="mcname"><span class="od ' + a.state + '"></span>' + esc(a.name) + '</div>'
+    + '<div class="mcsub">' + a.manifest.type + (a.manifest.public === false ? ' · private' : '') + '</div>'
+    + '</div>'
 }
 function benchRender() {
   if (!benchSys) return
   const sys = systemsCache.find(s => s.name === benchSys)
   if (!sys) return
-  document.getElementById('bench-title').textContent = 'workbench — ' + sys.name
-  document.getElementById('bench-switch').innerHTML = systemsCache.map(s2 =>
-    '<button class="' + (s2.name === benchSys ? 'active' : '') + '" onclick="switchBench(\\'' + s2.name + '\\')">' + esc(s2.name) + '</button>'
-  ).join('')
-  document.getElementById('bench-diagram').innerHTML = diagramSvg(sys, true)
+  const members = sys.members.map(n => appsCache.find(x => x.name === n)).filter(Boolean)
+  // Rebuild the thumbnail grid + diagram ONLY when structure changes, so the
+  // live iframes never reload mid-view.
+  const shellKey = benchSys + '|' + structSig() + '|' + benchSel
+  if (shellKey !== benchShellKey) {
+    benchShellKey = shellKey
+    document.getElementById('bench-title').textContent = 'workbench — ' + sys.name
+    document.getElementById('bench-switch').innerHTML = ''
+    document.getElementById('bench-diagram').innerHTML =
+      '<div class="mgrid">' + members.map(memberCard).join('') + '</div>'
+      + '<div class="mdiagram">' + diagramSvg(sys, true) + '</div>'
+  }
   const panel = document.getElementById('bench-panel')
   const a = benchSel ? appsCache.find(x => x.name === benchSel) : null
   if (!a) {
-    panel.innerHTML = '<div class="bench-hint">click a node to work on it</div>'
+    if (panel.dataset.sel !== '') { panel.dataset.sel = ''; panel.innerHTML = '<div class="bench-hint">click an app to work on it</div>' }
     return
   }
+  // Only rebuild the panel when the selected app OR its structural state
+  // changes — otherwise the preview iframe would reload every poll.
+  const panelKey = a.name + '|' + a.state + '|' + a.exposed
+  if (panel.dataset.key === panelKey) {
+    const live = panel.querySelector('.pstate')
+    if (live) live.textContent = a.state + ' - ' + a.manifest.type + (a.manifest.public === false ? ' - private' : '') + ' - ' + (a.reqPerMin ?? 0) + ' req/min'
+    return
+  }
+  panel.dataset.key = panelKey
+  panel.dataset.sel = a.name
   const rpm = a.reqPerMin ?? 0
   const wires = Object.entries(sys.wires ?? {}).filter(([k, v]) =>
     k.startsWith(a.name + '.') || new RegExp('//' + a.name + '([:/]|$)').test(v))
