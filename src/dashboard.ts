@@ -84,6 +84,18 @@ export function dashboardHtml(proxyPort: number): string {
     color: var(--amber); opacity: .85; user-select: none;
   }
   .cabmark::after { content: '_'; animation: cursor 1.2s steps(1) infinite; }
+  .cabinfo { color: var(--faint); font-size: 10px; margin-left: 14px; letter-spacing: .1em; text-transform: uppercase; }
+  .diagbtn { float: right; background: none; border: 1px solid var(--edge); border-radius: 4px; color: var(--dim);
+    font: inherit; font-size: 10px; padding: 2px 10px; cursor: pointer; letter-spacing: .08em; }
+  .diagbtn:hover { color: var(--accent); border-color: var(--accent); }
+  #overlay { position: fixed; inset: 0; display: none; background: rgba(8,9,11,.82); z-index: 100;
+    padding: 5vh 5vw; backdrop-filter: blur(3px); }
+  #overlay .panel { max-width: 860px; margin: 0 auto; background: linear-gradient(180deg, #101114, #0c0d10);
+    border: 1px solid var(--edge); border-radius: 12px; padding: 18px 22px; box-shadow: 0 24px 70px rgba(0,0,0,.7); }
+  #overlay .panel h2 { font-size: 11px; color: var(--accent); letter-spacing: .18em; text-transform: uppercase; margin-bottom: 4px; }
+  #overlay .panel .note { color: var(--faint); font-size: 10px; margin-bottom: 12px; }
+  #overlay svg { width: 100%; height: auto; display: block; }
+  #overlay text { font-family: ui-monospace, Menlo, monospace; }
   @keyframes cursor { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .cabmark::after { animation: none; } }
 
@@ -272,6 +284,7 @@ export function dashboardHtml(proxyPort: number): string {
   <span id="clock"></span>
 </footer>
 </div>
+<div id="overlay" onclick="this.style.display='none'"><div class="panel" onclick="event.stopPropagation()"><h2 id="dg-title"></h2><div class="note">apps call each other along the amber wires - the dashed boundary is the system's private network - click outside to close</div><div id="dg-body"></div></div></div>
 <div id="drawer"><div class="bar"><span id="dtitle"></span><span id="dapps"></span><button onclick="drawer.style.display='none'">close</button></div><div id="dbody"></div></div>
 <script>
 const drawer = document.getElementById('drawer')
@@ -390,11 +403,15 @@ function bayHtml(a, i) {
     + '<div class="face back"><div class="board" onclick="toggle(\\'' + a.name + '\\')">' + boardHtml(a) + '</div></div>'
     + '</div></div>'
 }
-function cabinetHtml(title, apps, slim) {
+function cabinetHtml(title, apps, slim, sys) {
+  const sub = sys
+    ? '<span class="cabinfo">system - ' + sys.members.length + ' members - ' + Object.keys(sys.wires ?? {}).length + ' wires</span>'
+      + '<button class="diagbtn" onclick="openDiagram(\\'' + esc(sys.name) + '\\')">&#8909; diagram</button>'
+    : ''
   return '<div class="cabinet">'
     + '<div class="vents' + (slim ? ' slim' : '') + '"></div>'
     + '<div class="rack">' + apps.map((a, i) => bayHtml(a, i)).join('') + '</div>'
-    + '<div class="cabmark">' + esc(title) + '</div>'
+    + '<div class="cabmark">' + esc(title) + sub + '</div>'
     + '</div>'
 }
 function render() {
@@ -408,7 +425,7 @@ function render() {
     return
   }
   const sorted = [...systems].sort((x, y) => x.name.localeCompare(y.name))
-  let html = sorted.map(s => cabinetHtml(s.name, apps.filter(a => s.members.includes(a.name)), true)).join('')
+  let html = sorted.map(s => cabinetHtml(s.name, apps.filter(a => s.members.includes(a.name)), true, s)).join('')
   const solo = apps.filter(a => !systems.some(s => s.members.includes(a.name)))
   if (solo.length) html += cabinetHtml('slab', solo, false)
   container.innerHTML = html
@@ -450,6 +467,69 @@ function navBoards() {
   else for (const a of appsCache) openBays.add(a.name)
   render()
 }
+
+function nodeColor(a) {
+  return a && a.state === 'running' ? '#71d68d' : a && a.state === 'sleeping' ? '#82b8e8' : a && a.state === 'error' ? '#f07f78' : '#5f626a'
+}
+function openDiagram(sysName) {
+  const sys = systemsCache.find(s => s.name === sysName)
+  if (!sys) return
+  const members = sys.members.map(n => appsCache.find(a => a.name === n)).filter(Boolean)
+  const pub = members.filter(a => a.manifest.public !== false)
+  const priv = members.filter(a => a.manifest.public === false)
+  const W = 820, NW = 158, NH = 52
+  const rowY = { ingress: 30, pub: 140, priv: 268 }
+  const H = priv.length ? 370 : 250
+  const place = (arr, y) => arr.map((a, i) => ({ a, x: (W / (arr.length + 1)) * (i + 1) - NW / 2, y }))
+  const nodes = [...place(pub, rowY.pub), ...place(priv, rowY.priv)]
+  const pos = {}
+  nodes.forEach(n => { pos[n.a.name] = n })
+  let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '">'
+    + '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+    + '<path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>'
+    + '<marker id="arrb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+    + '<path d="M0 0 L10 5 L0 10 z" fill="#82b8e8"/></marker></defs>'
+  // system boundary (the private network)
+  svg += '<rect x="14" y="' + (rowY.pub - 34) + '" width="' + (W - 28) + '" height="' + (H - rowY.pub + 14) + '" rx="12" fill="none" stroke="var(--faint)" stroke-dasharray="7 6" opacity=".55"/>'
+    + '<text x="30" y="' + (rowY.pub - 14) + '" fill="var(--faint)" font-size="10" letter-spacing="2">SLAB-NET-' + esc(sysName).toUpperCase() + '</text>'
+  // ingress node
+  if (pub.length) {
+    svg += '<rect x="' + (W / 2 - 70) + '" y="' + rowY.ingress + '" width="140" height="34" rx="6" fill="#0b0c0e" stroke="#82b8e8"/>'
+      + '<text x="' + (W / 2) + '" y="' + (rowY.ingress + 21) + '" fill="#82b8e8" font-size="11" text-anchor="middle">ingress :8080</text>'
+    for (const n of place(pub, rowY.pub)) {
+      svg += '<path d="M ' + (W / 2) + ' ' + (rowY.ingress + 34) + ' C ' + (W / 2) + ' ' + (rowY.pub - 40) + ', ' + (n.x + NW / 2) + ' ' + (rowY.pub - 44) + ', ' + (n.x + NW / 2) + ' ' + (n.y - 2) + '" fill="none" stroke="#82b8e8" stroke-width="1.6" marker-end="url(#arrb)" opacity=".7"/>'
+    }
+  }
+  // wires: key "<caller>.<ENV>" -> value URL mentioning callee hostname
+  const wires = Object.entries(sys.wires ?? {})
+  for (const [k, v] of wires) {
+    const caller = k.split('.')[0]
+    const envKey = k.slice(caller.length + 1)
+    const callee = sys.members.find(m => new RegExp('//' + m + '([:/]|$)').test(v))
+    if (!pos[caller] || !callee || !pos[callee]) continue
+    const c1 = pos[caller], c2 = pos[callee]
+    const x1 = c1.x + NW / 2, y1 = c1.y + NH, x2 = c2.x + NW / 2, y2 = c2.y - 2
+    const midY = (y1 + y2) / 2
+    svg += '<path d="M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2 + '" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>'
+      + '<text x="' + ((x1 + x2) / 2) + '" y="' + (midY - 6) + '" fill="var(--accent)" font-size="9" text-anchor="middle" opacity=".9">' + esc(envKey) + '</text>'
+  }
+  // app nodes (slab-styled)
+  for (const n of nodes) {
+    const a = n.a
+    const priv2 = a.manifest.public === false
+    svg += '<g>'
+      + '<rect x="' + n.x + '" y="' + n.y + '" width="' + NW + '" height="' + NH + '" rx="7" fill="#1b1d22" stroke="' + (priv2 ? 'var(--faint)' : '#33363e') + '"' + (priv2 ? ' stroke-dasharray="4 3"' : '') + '/>'
+      + '<circle cx="' + (n.x + 16) + '" cy="' + (n.y + NH / 2) + '" r="4" fill="' + nodeColor(a) + '"/>'
+      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 22) + '" fill="#ece9e2" font-size="12" font-weight="700">' + esc(a.name) + '</text>'
+      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 38) + '" fill="var(--faint)" font-size="9">' + (priv2 ? 'private - :' : ':') + a.manifest.port + ' - ' + a.manifest.type + '</text>'
+      + '</g>'
+  }
+  svg += '</svg>'
+  document.getElementById('dg-title').textContent = 'system: ' + sysName
+  document.getElementById('dg-body').innerHTML = svg
+  document.getElementById('overlay').style.display = 'block'
+}
+
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString()
 }
