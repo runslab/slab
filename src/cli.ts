@@ -120,9 +120,11 @@ program
     const { system: deployed, apps } = await client.deploySystem(system.name)
     const { proxyPort } = await client.health()
     const byName = new Map(apps.map((app) => [app.name, app]))
+    const memberNodes = deployed.memberNodes ?? {}
     for (const name of deployed.members) {
       const app = byName.get(name)
-      const loc = app && app.manifest.public !== false ? appUrl(app, proxyPort) : 'private'
+      const loc = memberNodes[name] ? `@ ${memberNodes[name]} (via trunk)`
+        : app && app.manifest.public !== false ? appUrl(app, proxyPort) : 'private'
       console.log(`  ${name} -> ${loc}`)
     }
     console.log(`system ${deployed.name} up (${deployed.members.length} apps)`)
@@ -395,6 +397,34 @@ program
   .action(action(async () => {
     const { status, node, apps, proxyPort } = await client.health()
     console.log(`daemon: ${status}${node ? ` — node "${node}"` : ''} — ${apps} app${apps === 1 ? '' : 's'}, proxy :${proxyPort}`)
+  }))
+
+const peerCmd = program.command('peer').description('manage cluster peers (other slab daemons)')
+
+peerCmd
+  .command('add <name> <url>')
+  .description('register a peer daemon, e.g. slab peer add garage http://garage:7766')
+  .option('--token <token>', "the peer's SLAB_TOKEN (needed for non-loopback peers)")
+  .action(action(async (name: string, url: string, opts: { token?: string }) => {
+    const { peer } = await client.setPeer(name, url, opts.token)
+    console.log(`peer ${peer.name} -> ${peer.url}${peer.token ? ' (token set)' : ''}`)
+  }))
+
+peerCmd
+  .command('ls')
+  .description('list peers')
+  .action(action(async () => {
+    const { peers } = await client.listPeers()
+    if (!peers.length) { console.log('no peers — add one: slab peer add <name> <url>'); return }
+    for (const p of peers) console.log(`${p.name}\t${p.url}${p.token ? '\t(token)' : ''}`)
+  }))
+
+peerCmd
+  .command('rm <name>')
+  .description('unregister a peer (does not touch the peer daemon)')
+  .action(action(async (name: string) => {
+    await client.removePeer(name)
+    console.log(`removed peer ${name}`)
   }))
 
 program

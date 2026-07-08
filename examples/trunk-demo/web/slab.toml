@@ -1,0 +1,4 @@
+name = "demo-web"
+type = "service"
+port = 80
+image = "nginx:alpine"

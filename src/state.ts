@@ -4,6 +4,10 @@ import os from 'os'
 import { SlabState, AppRecord, HOST_PORT_BASE } from './types'
 
 const SLAB_DIR = process.env.SLAB_DIR ?? path.join(os.homedir(), '.slab')
+
+export function slabDir(): string {
+  return SLAB_DIR
+}
 const STATE_FILE = path.join(SLAB_DIR, 'state.json')
 const SECRETS_DIR = path.join(SLAB_DIR, 'secrets')
 

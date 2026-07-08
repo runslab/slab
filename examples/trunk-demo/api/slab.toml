@@ -1,0 +1,8 @@
+name = "demo-api"
+type = "service"
+port = 5050
+public = false
+image = "traefik/whoami"
+
+[env]
+WHOAMI_PORT_NUMBER = "5050"

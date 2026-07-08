@@ -4,14 +4,16 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import express, { Request, Response, NextFunction } from 'express'
-import { AppRecord, Engine, JobRecord, Manifest, SystemManifest, SystemRecord, DAEMON_PORT, PROXY_PORT } from './types'
-import { loadState, saveState, allocateHostPort, getSecrets, setSecrets, deleteSecrets } from './state'
+import { AppRecord, Engine, JobRecord, Manifest, SystemManifest, SystemRecord, TrunkConfig, DAEMON_PORT, PROXY_PORT, BIND_ADDR, ADVERTISE_ADDR } from './types'
+import { loadState, saveState, allocateHostPort, getSecrets, setSecrets, deleteSecrets, slabDir } from './state'
 import { loadManifest, loadSystemManifest, parseDuration } from './manifest'
 import { createProxy } from './proxy'
 import { createEngine } from './engine'
 import { dashboardHtml, apiHumanHtml, faviconSvg } from './dashboard'
 import { openTunnel, closeTunnel } from './tunnel'
 import { cloneOrPull, normalizeGitUrl, repoDirName, looksLikeGitUrl } from './git'
+import { clientFor } from './api-client'
+import { trunkScript, TRUNK_INGRESS_PORT } from './trunk'
 
 const IDLE_REAP_INTERVAL_MS = 30_000
 const LAST_REQUEST_SAVE_THROTTLE_MS = 5_000
@@ -120,9 +122,11 @@ async function main(): Promise<void> {
   const state = loadState()
   state.systems ??= {}
   state.jobs ??= {}
+  state.peers ??= {}
   state.nodeName ??= sanitizeJobName(os.hostname().replace(/\.(local|lan|home)$/i, ''))
   const systems = state.systems // non-optional local alias, safe to use inside closures/handlers
   const jobs = state.jobs
+  const peers = state.peers
   const engine: Engine = createEngine()
 
   await reconcile(state, engine)
@@ -139,6 +143,20 @@ async function main(): Promise<void> {
     const system = systems[name]
     if (!system) throw new HttpError(404, `unknown system "${name}"`)
     return system
+  }
+
+  // A system that spans nodes gets a node-scoped network name so two daemons
+  // sharing one Docker engine (same-machine clusters) get SEPARATE bridges —
+  // otherwise the trunk's DNS aliases would collide with the real containers.
+  // Single-node systems keep the plain name (no migration).
+  function spansNodes(system: SystemRecord): boolean {
+    return Object.values(system.memberNodes ?? {}).some((n) => !!n)
+  }
+  function systemNet(system: SystemRecord): string {
+    return spansNodes(system) ? `slab-net-${state.nodeName}-${system.name}` : `slab-net-${system.name}`
+  }
+  function trunkKey(system: SystemRecord): string {
+    return `${state.nodeName}-${system.name}`
   }
 
   function systemsOf(appName: string): SystemRecord[] {
@@ -251,7 +269,7 @@ async function main(): Promise<void> {
         console.warn(`app "${record.name}" is private and a function — it cannot be woken by the ingress proxy`)
       }
 
-      const networks = memberSystems.map((s) => 'slab-net-' + s.name)
+      const networks = memberSystems.map((s) => systemNet(s))
       for (const net of networks) {
         await engine.ensureNetwork(net)
       }
@@ -379,8 +397,34 @@ async function main(): Promise<void> {
   }
   saveState(state)
 
+  // Write the generated trunk script for a system and return its path
+  // (bind-mounted read-only into the trunk container).
+  function writeTrunkScript(systemName: string): string {
+    const dir = path.join(slabDir(), 'trunks')
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, `${systemName}.js`)
+    fs.writeFileSync(file, trunkScript)
+    return file
+  }
+
+  function hostOfUrl(url: string): string {
+    try { return new URL(url).hostname } catch { return url }
+  }
+
   const api = express()
   api.use(express.json())
+
+  // Cluster auth: loopback is always trusted (your own machine); anything
+  // else must present this node's SLAB_TOKEN. With no token set, the daemon
+  // is loopback-only in practice even when SLAB_BIND opens it up.
+  const AUTH_TOKEN = process.env.SLAB_TOKEN
+  api.use((req, res, next) => {
+    const ip = req.socket.remoteAddress ?? ''
+    const loopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+    if (loopback) { next(); return }
+    if (AUTH_TOKEN && req.headers.authorization === `Bearer ${AUTH_TOKEN}`) { next(); return }
+    res.status(401).json({ error: 'unauthorized — non-loopback requests require Authorization: Bearer $SLAB_TOKEN' })
+  })
 
   // Rolling 60s of request timestamps per app — powers the req/min column
   const reqTimes = new Map<string, number[]>()
@@ -511,7 +555,15 @@ async function main(): Promise<void> {
     }
     const baseDir = path.dirname(sourceFile)
 
+    const memberNodes: Record<string, string> = {}
     for (const [memberName, cfg] of Object.entries(manifest.members)) {
+      if (cfg.node && cfg.node !== state.nodeName) {
+        if (!peers[cfg.node]) {
+          throw new HttpError(400, `member "${memberName}" is placed on unknown node "${cfg.node}" — register it first: slab peer add ${cfg.node} <url>`)
+        }
+        memberNodes[memberName] = cfg.node
+        continue   // created on the peer at deploy time (adopt)
+      }
       if (!state.apps[memberName]) {
         await createAppFromSource(cfg.source, baseDir, memberName)
       }
@@ -525,6 +577,10 @@ async function main(): Promise<void> {
       sourceFile,
       members: Object.keys(manifest.members),
       wires: manifest.wires,
+      memberNodes,
+      origin: null,
+      trunkHostPort: existing?.trunkHostPort ?? null,
+      trunkToken: existing?.trunkToken ?? null,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       deployedAt: existing?.deployedAt ?? null,
     }
@@ -535,9 +591,58 @@ async function main(): Promise<void> {
 
   api.post('/v1/systems/:name/deploy', wrap(async (req, res) => {
     const system = getSystemOr404(nameParam(req))
-    await engine.ensureNetwork('slab-net-' + system.name)
+    await engine.ensureNetwork(systemNet(system))
 
-    const order = topoSortMembers(system)
+    const memberNodes = system.memberNodes ?? {}
+    const remoteByNode = new Map<string, string[]>()   // peer name -> member names
+    for (const [m, n] of Object.entries(memberNodes)) {
+      if (!n || n === state.nodeName) continue
+      if (!remoteByNode.has(n)) remoteByNode.set(n, [])
+      remoteByNode.get(n)!.push(m)
+    }
+    const localMembers = system.members.filter((m) => !memberNodes[m] || memberNodes[m] === state.nodeName)
+
+    // ── remote members: each involved peer adopts the system (creates +
+    // deploys ITS members, allocates its trunk port) ──
+    const peerResults = new Map<string, { trunkPort: number; members: Array<{ name: string; port: number }> }>()
+    if (remoteByNode.size > 0) {
+      let manifest: SystemManifest
+      try {
+        manifest = loadSystemManifest(system.sourceFile)
+      } catch (err) {
+        res.status(500).json({ error: `cannot re-read system manifest ${system.sourceFile}: ${(err as Error).message}` })
+        return
+      }
+      const baseDir = path.dirname(system.sourceFile)
+      for (const [peerName, mems] of remoteByNode) {
+        const peer = peers[peerName]
+        if (!peer) {
+          res.status(400).json({ error: `system "${system.name}" places members on unknown node "${peerName}" — slab peer add ${peerName} <url>` })
+          return
+        }
+        // Resolve relative sources against the system.toml dir; git urls pass
+        // through (the right choice across real machines — the peer clones).
+        const membersPayload: Record<string, { source: string }> = {}
+        for (const m of mems) {
+          const src = manifest.members[m]?.source ?? ''
+          const asPath = path.isAbsolute(src) ? src : path.resolve(baseDir, src)
+          membersPayload[m] = { source: fs.existsSync(asPath) ? asPath : src }
+        }
+        try {
+          const r = await clientFor(peer.url, peer.token).adoptSystem({
+            name: system.name, origin: state.nodeName!, members: membersPayload,
+            wires: system.wires, memberNodes,
+          })
+          peerResults.set(peerName, r)
+        } catch (err) {
+          res.status(500).json({ error: `node "${peerName}" failed to adopt system "${system.name}": ${(err as Error).message}` })
+          return
+        }
+      }
+    }
+
+    // ── local members, dependency order ──
+    const order = topoSortMembers(system).filter((m) => localMembers.includes(m))
     const memberRecords: AppRecord[] = []
     for (const memberName of order) {
       const app = state.apps[memberName]
@@ -554,16 +659,133 @@ async function main(): Promise<void> {
       memberRecords.push(app)
     }
 
+    // ── trunks: one per involved node, stitching the system together ──
+    if (remoteByNode.size > 0) {
+      const ports = new Map<string, { port: number; node: string }>()
+      for (const m of order) {
+        const app = state.apps[m]
+        if (app) ports.set(m, { port: app.manifest.port, node: state.nodeName! })
+      }
+      for (const [peerName, r] of peerResults) {
+        for (const mi of r.members) ports.set(mi.name, { port: mi.port, node: peerName })
+      }
+      const seen = new Map<number, string>()
+      for (const [m, info] of ports) {
+        const clash = seen.get(info.port)
+        if (clash) {
+          res.status(400).json({ error: `a system that spans nodes needs distinct member ports: "${m}" and "${clash}" both listen on ${info.port}` })
+          return
+        }
+        seen.set(info.port, m)
+      }
+
+      system.trunkHostPort ??= allocateHostPort(state)
+      system.trunkToken ??= Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+      saveState(state)
+
+      const trunkPeers: TrunkConfig['peers'] = {
+        [state.nodeName!]: { host: ADVERTISE_ADDR, port: system.trunkHostPort },
+      }
+      for (const [peerName, r] of peerResults) {
+        trunkPeers[peerName] = { host: hostOfUrl(peers[peerName].url), port: r.trunkPort }
+      }
+      const cfgFor = (nodeName: string): TrunkConfig => {
+        const local: TrunkConfig['local'] = {}
+        const remote: TrunkConfig['remote'] = {}
+        for (const [m, info] of ports) {
+          if (info.node === nodeName) local[m] = { port: info.port }
+          else remote[m] = { port: info.port, node: info.node }
+        }
+        return { token: system.trunkToken!, ingressPort: TRUNK_INGRESS_PORT, local, remote, peers: trunkPeers }
+      }
+
+      try {
+        await engine.runTrunk(trunkKey(system), writeTrunkScript(system.name), cfgFor(state.nodeName!), systemNet(system), system.trunkHostPort)
+      } catch (err) {
+        res.status(500).json({ error: `failed to start trunk for "${system.name}": ${(err as Error).message}` })
+        return
+      }
+      for (const [peerName] of peerResults) {
+        const peer = peers[peerName]
+        try {
+          await clientFor(peer.url, peer.token).trunkSync(system.name, cfgFor(peerName))
+        } catch (err) {
+          res.status(500).json({ error: `node "${peerName}" failed to start its trunk for "${system.name}": ${(err as Error).message}` })
+          return
+        }
+      }
+    } else if (system.trunkHostPort != null) {
+      // system no longer spans nodes — retire the local trunk
+      await engine.removeTrunk(trunkKey(system)).catch(() => { /* best-effort */ })
+    }
+
     system.deployedAt = new Date().toISOString()
     saveState(state)
     res.json({ system, apps: memberRecords })
   }))
 
+  // ── node-to-node: a console pushes a spanning system to this node ──────────
+
+  api.post('/v1/systems/adopt', wrap(async (req, res) => {
+    const body = req.body ?? {}
+    const name = body.name
+    if (typeof name !== 'string' || !name || typeof body.members !== 'object' || body.members === null) {
+      throw new HttpError(400, 'body must be { name, origin, members, wires, memberNodes }')
+    }
+    const members = body.members as Record<string, { source?: unknown }>
+    for (const [memberName, cfg] of Object.entries(members)) {
+      if (!state.apps[memberName]) {
+        await createAppFromSource(String(cfg?.source ?? ''), process.cwd(), memberName)
+      }
+    }
+    const existing = systems[name]
+    const record: SystemRecord = {
+      name,
+      sourceFile: `adopted:${String(body.origin ?? 'unknown')}`,
+      members: Object.keys(members),
+      wires: (body.wires ?? {}) as Record<string, string>,
+      memberNodes: (body.memberNodes ?? {}) as Record<string, string>,
+      origin: String(body.origin ?? '') || null,
+      trunkHostPort: existing?.trunkHostPort ?? allocateHostPort(state),
+      trunkToken: existing?.trunkToken ?? null,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      deployedAt: existing?.deployedAt ?? null,
+    }
+    systems[name] = record
+    saveState(state)
+    await engine.ensureNetwork(systemNet(record))
+
+    const out: Array<{ name: string; port: number }> = []
+    for (const memberName of record.members) {
+      const app = state.apps[memberName]
+      if (!app) throw new HttpError(500, `adopted member "${memberName}" is not a known app`)
+      await deployApp(app)   // errors propagate as 500 {error} via the wrapper
+      out.push({ name: memberName, port: app.manifest.port })
+    }
+    record.deployedAt = new Date().toISOString()
+    saveState(state)
+    res.json({ trunkPort: record.trunkHostPort, members: out })
+  }))
+
+  api.post('/v1/systems/:name/trunk-sync', wrap(async (req, res) => {
+    const system = getSystemOr404(nameParam(req))
+    const cfg = req.body as TrunkConfig
+    if (!cfg || typeof cfg.token !== 'string' || typeof cfg.local !== 'object' || typeof cfg.peers !== 'object') {
+      throw new HttpError(400, 'body must be a TrunkConfig { token, ingressPort, local, remote, peers }')
+    }
+    system.trunkToken = cfg.token
+    system.trunkHostPort ??= allocateHostPort(state)
+    saveState(state)
+    const id = await engine.runTrunk(trunkKey(system), writeTrunkScript(system.name), cfg, systemNet(system), system.trunkHostPort)
+    res.json({ trunk: id })
+  }))
+
   api.delete('/v1/systems/:name', wrap(async (req, res) => {
     const system = getSystemOr404(nameParam(req))
+    await engine.removeTrunk(trunkKey(system)).catch(() => { /* no trunk / already gone */ })
     // removeNetwork force-disconnects any still-connected member containers
     // per its contract (engine.ts) before removing the network itself.
-    await engine.removeNetwork('slab-net-' + system.name)
+    await engine.removeNetwork(systemNet(system))
     delete systems[system.name]
     saveState(state)
     res.status(204).end()
@@ -669,6 +891,33 @@ async function main(): Promise<void> {
     await engine.removeJob(job)
     canceledJobs.delete(job.id)
     delete jobs[job.id]
+    saveState(state)
+    res.status(204).end()
+  }))
+
+  api.get('/v1/peers', wrap(async (_req, res) => {
+    res.json({ peers: Object.values(peers) })
+  }))
+
+  api.put('/v1/peers/:name', wrap(async (req, res) => {
+    const name = nameParam(req)
+    if (!JOB_NAME_RE.test(name)) {
+      throw new HttpError(400, 'invalid peer name — lowercase letters, digits, hyphens, 2-31 chars')
+    }
+    const url = req.body?.url
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) {
+      throw new HttpError(400, 'body must be { url: "http://host:port", token? }')
+    }
+    const token = typeof req.body?.token === 'string' && req.body.token ? req.body.token : undefined
+    peers[name] = { name, url: url.replace(/\/+$/, ''), token }
+    saveState(state)
+    res.json({ peer: peers[name] })
+  }))
+
+  api.delete('/v1/peers/:name', wrap(async (req, res) => {
+    const name = nameParam(req)
+    if (!peers[name]) throw new HttpError(404, `unknown peer "${name}"`)
+    delete peers[name]
     saveState(state)
     res.status(204).end()
   }))
@@ -821,10 +1070,10 @@ async function main(): Promise<void> {
 
   startIdleReaper(state, engine)
 
-  api.listen(DAEMON_PORT, '127.0.0.1', () => {
-    proxyServer.listen(PROXY_PORT, '127.0.0.1', () => {
+  api.listen(DAEMON_PORT, BIND_ADDR, () => {
+    proxyServer.listen(PROXY_PORT, BIND_ADDR, () => {
       const appCount = Object.keys(state.apps).length
-      console.log(`slab daemon up — api:${DAEMON_PORT} proxy:${PROXY_PORT} apps:${appCount}`)
+      console.log(`slab daemon up — node:${state.nodeName} bind:${BIND_ADDR} api:${DAEMON_PORT} proxy:${PROXY_PORT} apps:${appCount}`)
     })
   })
 }
@@ -861,10 +1110,13 @@ async function reconcile(state: ReturnType<typeof loadState>, engine: Engine): P
 
 // On startup, make sure every system's network exists and every currently
 // running member is (re)joined to it — best-effort, never fails boot.
+// Spanning systems use node-scoped network names (see systemNet in main).
 async function reconcileSystems(state: ReturnType<typeof loadState>, engine: Engine): Promise<void> {
   for (const system of Object.values(state.systems ?? {})) {
+    const spans = Object.values(system.memberNodes ?? {}).some((n) => !!n)
+    const net = spans ? `slab-net-${state.nodeName}-${system.name}` : `slab-net-${system.name}`
     try {
-      await engine.ensureNetwork('slab-net-' + system.name)
+      await engine.ensureNetwork(net)
     } catch (err) {
       console.error(`reconcile: failed to ensure network for system ${system.name}: ${(err as Error).message}`)
     }
@@ -872,7 +1124,7 @@ async function reconcileSystems(state: ReturnType<typeof loadState>, engine: Eng
       const app = state.apps[memberName]
       if (!app || app.state !== 'running') continue
       try {
-        await engine.connectNetworks(app, ['slab-net-' + system.name])
+        await engine.connectNetworks(app, [net])
       } catch (err) {
         console.error(`reconcile: failed to connect ${app.name} to system ${system.name}: ${(err as Error).message}`)
       }

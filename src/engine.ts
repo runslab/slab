@@ -1,7 +1,10 @@
 // slab — docker engine. Implements Engine (types.ts) with dockerode against
 // the default local socket.
 import Docker from 'dockerode'
-import { AppRecord, Engine, JobRecord } from './types'
+import { AppRecord, Engine, JobRecord, TrunkConfig } from './types'
+import { TRUNK_INGRESS_PORT } from './trunk'
+
+const TRUNK_IMAGE = 'node:22-alpine'
 
 const PG_CONTAINER_NAME = 'slab-postgres'
 const PG_IMAGE = 'postgres:16-alpine'
@@ -412,6 +415,75 @@ export function createEngine(): Engine {
     }
   }
 
+  // ── trunk layer ─────────────────────────────────────────────────────────
+
+  async function removeTrunk(systemName: string): Promise<void> {
+    const containers = await docker.listContainers({ all: true, filters: { label: [`slab.trunk=${systemName}`] } })
+    for (const info of containers) {
+      await docker.getContainer(info.Id).remove({ force: true }).catch((err) => {
+        if (!isIgnorable(err)) throw new Error(`failed to remove trunk for ${systemName}: ${errMsg(err)}`)
+      })
+    }
+  }
+
+  async function runTrunk(
+    systemName: string,
+    scriptPath: string,
+    cfg: TrunkConfig,
+    network: string,
+    hostPort: number,
+  ): Promise<string> {
+    await removeTrunk(systemName)
+    if (!(await imageExists(TRUNK_IMAGE))) await pullImage(TRUNK_IMAGE)
+
+    // Inside a container, 127.0.0.1 is the container itself — a peer trunk
+    // published on the host loopback (same-machine cluster) is reached via
+    // host.docker.internal instead.
+    const peers = Object.fromEntries(Object.entries(cfg.peers).map(([node, p]) => [
+      node,
+      { ...p, host: p.host === '127.0.0.1' || p.host === 'localhost' ? 'host.docker.internal' : p.host },
+    ]))
+    const containerCfg: TrunkConfig = { ...cfg, peers, ingressPort: TRUNK_INGRESS_PORT }
+
+    const portKey = `${TRUNK_INGRESS_PORT}/tcp`
+    let container: Docker.Container
+    try {
+      container = await docker.createContainer({
+        name: `slab-trunk-${systemName}`,
+        Image: TRUNK_IMAGE,
+        Labels: { 'slab.trunk': systemName },
+        Cmd: ['node', '/trunk.js'],
+        Env: [`TRUNK_CONFIG=${JSON.stringify(containerCfg)}`],
+        ExposedPorts: { [portKey]: {} },
+        HostConfig: {
+          Binds: [`${scriptPath}:/trunk.js:ro`],
+          PortBindings: { [portKey]: [{ HostIp: '0.0.0.0', HostPort: String(hostPort) }] },
+          RestartPolicy: { Name: 'unless-stopped' },
+          ExtraHosts: ['host.docker.internal:host-gateway'],
+        },
+      })
+    } catch (err) {
+      throw new Error(`failed to create trunk for ${systemName}: ${errMsg(err)}`)
+    }
+    try {
+      await container.start()
+    } catch (err) {
+      await container.remove({ force: true }).catch(() => { /* best-effort cleanup */ })
+      throw new Error(`failed to start trunk for ${systemName}: ${errMsg(err)}`)
+    }
+
+    // Join the system network wearing every remote member's name.
+    const aliases = Object.keys(cfg.remote)
+    try {
+      await docker.getNetwork(network).connect({ Container: container.id, EndpointConfig: { Aliases: aliases } })
+    } catch (err) {
+      if (!isNetworkConflict(err)) {
+        throw new Error(`failed to join trunk to ${network}: ${errMsg(err)}`)
+      }
+    }
+    return container.id
+  }
+
   async function stopContainer(app: AppRecord): Promise<void> {
     const c = await resolveContainer(app)
     if (!c) return
@@ -565,5 +637,7 @@ export function createEngine(): Engine {
     getJobLogs,
     stopJob,
     removeJob,
+    runTrunk,
+    removeTrunk,
   }
 }

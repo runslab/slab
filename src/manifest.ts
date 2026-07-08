@@ -91,13 +91,15 @@ export function loadSystemManifest(file: string): SystemManifest {
   if (!NAME_RE.test(name)) {
     throw new Error(`Invalid system name "${name}" — lowercase letters, digits, hyphens, 2-31 chars`)
   }
-  const rawApps = (raw.apps ?? {}) as Record<string, { source?: unknown }>
+  const rawApps = (raw.apps ?? {}) as Record<string, { source?: unknown; node?: unknown }>
   const members: SystemManifest['members'] = {}
   for (const [app, cfg] of Object.entries(rawApps)) {
     if (!NAME_RE.test(app)) throw new Error(`Invalid member app name "${app}"`)
     const source = String(cfg?.source ?? '')
     if (!source) throw new Error(`Member "${app}" is missing source`)
-    members[app] = { source }
+    const node = cfg?.node != null ? String(cfg.node) : undefined
+    if (node !== undefined && !NAME_RE.test(node)) throw new Error(`Member "${app}" has invalid node "${node}"`)
+    members[app] = node ? { source, node } : { source }
   }
   if (Object.keys(members).length === 0) throw new Error('System has no [apps.<name>] members')
   const rawWires = (raw.wires ?? {}) as Record<string, unknown>

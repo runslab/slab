@@ -1,0 +1,20 @@
+# trunk-demo — a system that spans two nodes.
+#
+# demo-web runs on THIS node; demo-api runs on the peer named "beta" and is
+# private (no host port anywhere). The trunk stitches them: inside demo-web,
+# http://demo-api:5050 works exactly as if they shared a machine.
+#
+# Try it on one machine (two daemons):
+#   SLAB_DIR=~/.slab-beta SLAB_PORT=7866 SLAB_PROXY_PORT=8180 node dist/daemon.js &
+#   slab peer add beta http://127.0.0.1:7866
+#   slab up examples/trunk-demo
+#   docker exec slab-demo-web wget -qO- http://demo-api:5050
+
+name = "trunk-demo"
+
+[apps.demo-web]
+source = "./web"
+
+[apps.demo-api]
+source = "./api"
+node = "beta"

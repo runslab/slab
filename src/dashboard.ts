@@ -1003,7 +1003,12 @@ function nodeColor(a) {
 function openDiagram(sysName) { enterBench(sysName) }
 function diagramSvg(sys, clickable) {
   if (!sys) return ''
-  const members = sys.members.map(n => appsCache.find(a => a.name === n)).filter(Boolean)
+  // members on other nodes render as ghosts — dashed, labeled @node (trunk)
+  const memberNodes = sys.memberNodes ?? {}
+  const members = sys.members.map(n =>
+    appsCache.find(a => a.name === n)
+    ?? (memberNodes[n] ? { name: n, state: 'remote', __node: memberNodes[n], manifest: { public: true, port: '', type: 'remote' } } : null)
+  ).filter(Boolean)
   const pub = members.filter(a => a.manifest.public !== false)
   const priv = members.filter(a => a.manifest.public === false)
   const W = 820, NW = 158, NH = 52
@@ -1046,14 +1051,17 @@ function diagramSvg(sys, clickable) {
   for (const n of nodes) {
     const a = n.a
     const priv2 = a.manifest.public === false
+    const ghost = !!a.__node
     const cls = 'node' + (benchSel === a.name ? ' sel' : '')
-    svg += clickable
-      ? '<g class="' + cls + '" onclick="benchSelect(\\'' + a.name + '\\')">'
-      : '<g>'
-      + '<rect x="' + n.x + '" y="' + n.y + '" width="' + NW + '" height="' + NH + '" rx="7" fill="var(--node)" stroke="' + (priv2 ? 'var(--faint)' : 'var(--edge)') + '"' + (priv2 ? ' stroke-dasharray="4 3"' : '') + '/>'
+    const sub = ghost ? '@ ' + a.__node + ' - via trunk'
+      : (priv2 ? 'private - :' : ':') + a.manifest.port + ' - ' + a.manifest.type
+    svg += ((clickable && !ghost)
+        ? '<g class="' + cls + '" onclick="benchSelect(\\'' + a.name + '\\')">'
+        : '<g>')
+      + '<rect x="' + n.x + '" y="' + n.y + '" width="' + NW + '" height="' + NH + '" rx="7" fill="var(--node)" stroke="' + (ghost || priv2 ? 'var(--faint)' : 'var(--edge)') + '"' + (ghost || priv2 ? ' stroke-dasharray="4 3"' : '') + (ghost ? ' opacity=".7"' : '') + '/>'
       + '<circle cx="' + (n.x + 16) + '" cy="' + (n.y + NH / 2) + '" r="4" fill="' + nodeColor(a) + '"/>'
-      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 22) + '" fill="var(--text)" font-size="12" font-weight="700">' + esc(a.name) + '</text>'
-      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 38) + '" fill="var(--faint)" font-size="9">' + (priv2 ? 'private - :' : ':') + a.manifest.port + ' - ' + a.manifest.type + '</text>'
+      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 22) + '" fill="var(--text)" font-size="12" font-weight="700"' + (ghost ? ' opacity=".75"' : '') + '>' + esc(a.name) + '</text>'
+      + '<text x="' + (n.x + 30) + '" y="' + (n.y + 38) + '" fill="var(--faint)" font-size="9">' + esc(sub) + '</text>'
       + '</g>'
   }
   svg += '</svg>'

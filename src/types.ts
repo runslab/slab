@@ -43,7 +43,22 @@ export interface SlabState {
   jobs?: Record<string, JobRecord>         // optional for state-file back-compat
   nodeName?: string         // this daemon's identity (defaults to the hostname);
                             // groundwork for multi-node: many named slabs, one view
+  peers?: Record<string, PeerRecord>   // other slab daemons (optional for back-compat)
   nextHostPort: number      // starts at 20000
+}
+
+// ── Trunks: the slab network layer between nodes (docs/design/trunks.md) ─────
+// A system that spans nodes gets ONE trunk container per involved node:
+// joined to that node's slab-net-<system> bridge with a DNS alias for every
+// REMOTE member, so http://<member>:<port> keeps working unchanged. The trunk
+// tunnels the TCP stream (one-line token+member preamble) to the target
+// node's trunk, which hands it to the real container. Members never know.
+export interface TrunkConfig {
+  token: string                                        // preamble shared secret
+  ingressPort: number                                  // in-container listener for inbound tunnels
+  local: Record<string, { port: number }>              // members on this node
+  remote: Record<string, { port: number; node: string }>  // members elsewhere (alias + egress listener each)
+  peers: Record<string, { host: string; port: number }>   // node -> trunk ingress host:port
 }
 
 // ── Jobs: run-to-completion workloads (`slab run`) ────────────────────────────
@@ -95,6 +110,15 @@ export interface JobRecord {
 //   GET    /v1/health                   -> { status: 'ok', node: string, apps: number, proxyPort: number }
 //   PUT    /v1/node                     -> body { name } ; rename this daemon node -> { node }
 //
+//   GET    /v1/peers                    -> { peers: PeerRecord[] }
+//   PUT    /v1/peers/:name              -> body { url, token? } ; register/update a peer -> { peer }
+//   DELETE /v1/peers/:name              -> 204
+//   POST   /v1/systems/adopt            -> (node-to-node) body { name, origin, members, wires,
+//                                           memberNodes } ; peer creates+deploys ITS members,
+//                                           allocates a trunk port -> { trunkPort, members }
+//   POST   /v1/systems/:name/trunk-sync -> (node-to-node) body TrunkConfig ; (re)start this
+//                                           node's trunk container -> { trunk: containerId }
+//
 //   GET    /v1/jobs                     -> { jobs: JobRecord[] } (newest first)
 //   POST   /v1/jobs                     -> body { sourceDir? | gitUrl?, image?, command?: string[],
 //                                           env?, name?, timeout? } ; starts the job async -> 201 { job }
@@ -107,9 +131,17 @@ export interface JobRecord {
 // header: <app>.localhost -> app's hostPort. For sleeping functions it starts
 // the container first (wake-on-request), then forwards.
 
-export const DAEMON_PORT = 7766
-export const PROXY_PORT = 8080
+// Env-configurable so several daemons ("nodes") can coexist — even on one
+// machine (pair with SLAB_DIR for separate state). Defaults match v0.
+export const DAEMON_PORT = Number(process.env.SLAB_PORT ?? 7766)
+export const PROXY_PORT = Number(process.env.SLAB_PROXY_PORT ?? 8080)
 export const HOST_PORT_BASE = 20000
+// Bind address for the API + ingress (default loopback-only). Non-loopback
+// callers must present Authorization: Bearer $SLAB_TOKEN.
+export const BIND_ADDR = process.env.SLAB_BIND ?? '127.0.0.1'
+// The address other nodes should use to reach this one (trunk dialing).
+// Same-machine testing: 127.0.0.1. Real cluster: your tailnet name/IP.
+export const ADVERTISE_ADDR = process.env.SLAB_ADVERTISE ?? '127.0.0.1'
 
 // ── Engine interface (implemented in engine.ts with dockerode) ───────────────
 export interface Engine {
@@ -146,6 +178,14 @@ export interface Engine {
   getJobLogs(job: JobRecord, tail: number): Promise<string>
   stopJob(job: JobRecord): Promise<void>          // stop, keep container (logs stay readable)
   removeJob(job: JobRecord): Promise<void>        // stop + rm the job container
+  // ── trunk layer ──
+  // Run (replacing any previous) the system's trunk container: node:22-alpine,
+  // mounted script, TRUNK_CONFIG env, ingress published on hostPort (all
+  // interfaces — the preamble token is the auth), joined to `network` with
+  // aliases = the remote member names. 127.0.0.1 peer hosts are rewritten to
+  // host.docker.internal so same-machine clusters work.
+  runTrunk(systemName: string, scriptPath: string, cfg: TrunkConfig, network: string, hostPort: number): Promise<string>
+  removeTrunk(systemName: string): Promise<void>
 }
 
 // ── Systems: wiring + isolation (docs/design/systems.md) ─────────────────────
@@ -156,17 +196,30 @@ export interface Engine {
 
 export interface SystemManifest {
   name: string                        // same NAME_RE rules as apps
-  members: Record<string, { source: string }>   // app name -> source dir/git url
+  // app name -> source + optional placement: node = "<peer-name>" puts the
+  // member on that peer daemon; a trunk stitches the system across nodes.
+  members: Record<string, { source: string; node?: string }>
   wires: Record<string, string>       // "<app>.<ENV_KEY>" -> value (usually http://<member>:<port>/..)
 }
 
 export interface SystemRecord {
   name: string
-  sourceFile: string                  // absolute path to the system.toml
-  members: string[]                   // app names
+  sourceFile: string                  // absolute path to the system.toml ('adopted:<origin>' on peers)
+  members: string[]                   // app names LOCAL to this node
   wires: Record<string, string>
+  memberNodes?: Record<string, string>  // member -> peer name; absent/'' = local. Includes ALL members.
+  origin?: string | null              // node that owns the manifest (set on adopted records)
+  trunkHostPort?: number | null       // host port this node's trunk ingress is published on
+  trunkToken?: string | null          // shared secret in the trunk preamble
   createdAt: string
   deployedAt: string | null
+}
+
+// A peer is another slab daemon this node can reach (the cluster registry).
+export interface PeerRecord {
+  name: string                        // the peer's node name
+  url: string                         // e.g. http://garage:7766 (tailnet name/IP)
+  token?: string                      // its SLAB_TOKEN, when set
 }
 
 // state.systems: Record<string, SystemRecord> — added alongside apps.

@@ -175,11 +175,15 @@ Rough order; nothing here is promised, everything here is intended.
 5. **Named tunnels.** Stable hostnames on your own domain (Cloudflare named
    tunnels) instead of rotating trycloudflare URLs. Same code path as
    `expose`, config instead of chance.
-6. **Multi-node.** Node identity shipped: every daemon has a name
-   (defaults to the hostname; `slab node <name>`, shown on the dashboard).
-   Next: one dashboard reads many nodes (each rack wall labeled by node),
-   `slab --node <name>` targeting, and jobs scheduled onto whichever node
-   has capacity — a bunch of slabs, one hyperscaler.
+6. **Multi-node.** Shipping in slices. Done: node identity (`slab node`),
+   peers registry (`slab peer add garage http://garage:7766`), cluster auth
+   (`SLAB_TOKEN` + `SLAB_BIND`/`SLAB_ADVERTISE`), and **trunks** — systems
+   that span nodes ([docs/design/trunks.md](docs/design/trunks.md)): put
+   `node = "garage"` on a member and a per-system trunk container on each
+   node carries `http://<member>:<port>` across machines unchanged, private
+   members included. Next: one dashboard reads many nodes (a rack wall per
+   node), `slab --node <name>` targeting, and jobs scheduled onto whichever
+   node has capacity — a bunch of slabs, one hyperscaler.
 7. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
    interface already isolates Docker; a second driver renders the same
    manifest to Fargate/Lambda/RDS (or Fly machines). One manifest, one verb
