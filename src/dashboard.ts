@@ -157,7 +157,7 @@ export function dashboardHtml(proxyPort: number): string {
   .meter .rpm.hot { color: var(--text); }
   .meter .rpm small { font-size: 10px; color: var(--faint); font-weight: 500; margin-left: 2px; }
   .meter svg { display: block; margin: 4px 0 0 auto; opacity: .9; }
-  .meter svg path { stroke: var(--accent); }
+  .meter svg path { stroke: var(--accent); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 45%, transparent)); }
 
   .acts { display: flex; flex-direction: column; gap: 6px; opacity: 0; transition: opacity .15s; }
   .bay:hover .acts, .acts:focus-within { opacity: 1; }
@@ -168,14 +168,14 @@ export function dashboardHtml(proxyPort: number): string {
   }
   button:hover { color: var(--text); border-color: var(--faint); }
   button.warn:hover { color: var(--red); border-color: var(--red); }
-  button.hot { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
+  button.hot { border-color: color-mix(in srgb, var(--accent) 75%, transparent); border-width: 1.5px; color: var(--accent); }
   button.hot:hover { border-color: var(--amber); }
 
   /* back face: the board inside */
   .board {
     height: 100%; cursor: pointer; overflow: hidden; position: relative;
     background:
-      repeating-linear-gradient(90deg, transparent 0 46px, var(--trace) 46px 47px),
+      repeating-linear-gradient(90deg, transparent 0 46px, var(--trace) 46px 48px),
       repeating-linear-gradient(0deg, transparent 0 34px, rgba(255,180,84,.10) 34px 35px),
       linear-gradient(180deg, #171a10, var(--board));
     border: 1px solid #2e331f; border-radius: 7px;
@@ -199,7 +199,7 @@ export function dashboardHtml(proxyPort: number): string {
   .chip.wide { flex: 1 1 100%; }
   .wire { display: flex; align-items: center; gap: 8px; font-size: 11px; }
   .wire .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-  .wire .lead { flex: 1; height: 1px; background: repeating-linear-gradient(90deg, var(--amber) 0 6px, transparent 6px 11px); opacity: .6; min-width: 30px; }
+  .wire .lead { flex: 1; height: 2px; background: repeating-linear-gradient(90deg, var(--amber) 0 6px, transparent 6px 11px); opacity: .6; min-width: 30px; }
 
   .empty { border: 1px dashed var(--edge); border-radius: 7px; padding: 44px; text-align: center; color: var(--faint); }
   .empty code { color: var(--amber); }
@@ -214,6 +214,14 @@ export function dashboardHtml(proxyPort: number): string {
   .setrow input[type=color]::-webkit-color-swatch { border: none; border-radius: 50%; }
   .setrow .swatches { display: flex; gap: 8px; }
   .setrow .swatches i { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 1px solid var(--edge); }
+  .setrow.sliders { flex-direction: column; align-items: stretch; gap: 10px; }
+  .srow { display: flex; align-items: center; gap: 12px; }
+  .srow label { width: 24px; color: var(--faint); font-size: 10px; text-transform: uppercase; }
+  .srow input[type=range] { flex: 1; -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; border: 1px solid var(--edge); cursor: pointer; background: #222; }
+  .srow input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid #0b0c0e; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+  .preview { display: flex; align-items: center; gap: 12px; }
+  .preview .chipbox { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--edge); background: var(--accent); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent); }
+  .preview code { color: var(--dim); font-size: 11px; }
 
   #drawer {
     position: fixed; left: 0; right: 0; bottom: 0; max-height: 46vh; display: none;
@@ -225,7 +233,7 @@ export function dashboardHtml(proxyPort: number): string {
     position: sticky; top: 0; background: #0b0c0e; padding-bottom: 6px; }
   #dapps { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; }
   #dapps button { text-transform: none; letter-spacing: 0; }
-  #dapps button.active { border-color: var(--amber); color: var(--amber); }
+  #dapps button.active { border-color: var(--amber); border-width: 1.5px; color: var(--amber); }
 
   @media (max-width: 720px) {
     .layout { grid-template-columns: 1fr; }
@@ -314,7 +322,7 @@ function spark(name) {
   const step = w / (pts.length - 1)
   const path = pts.map((v, i) => (i ? 'L' : 'M') + (i * step).toFixed(1) + ' ' + (h - 2 - (v / max) * (h - 4)).toFixed(1)).join(' ')
   return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">'
-    + '<path d="' + path + '" fill="none" stroke-width="1.5" stroke-linecap="round"/></svg>'
+    + '<path d="' + path + '" fill="none" stroke-width="2.5" stroke-linecap="round"/></svg>'
 }
 function chip(lbl, val, amber) {
   return '<div class="chip"><div class="lbl">' + lbl + '</div><div class="val' + (amber ? ' amber' : '') + '">' + val + '</div></div>'
@@ -424,19 +432,68 @@ if (savedAccent) document.documentElement.style.setProperty('--accent', savedAcc
 function setAccent(v) {
   document.documentElement.style.setProperty('--accent', v)
   localStorage.setItem('slab-accent', v)
-  const inp = document.getElementById('accent-input')
-  if (inp) inp.value = v
+  const hex = document.getElementById('accent-hex')
+  if (hex) hex.textContent = v
+}
+function hexToHsl(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  const l = (max + min) / 2
+  if (!d) return [0, 0, Math.round(l * 100)]
+  const s = d / (1 - Math.abs(2 * l - 1))
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  h = Math.round(h * 60); if (h < 0) h += 360
+  return [h, Math.round(s * 100), Math.round(l * 100)]
+}
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+  const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
+  return '#' + to(r) + to(g) + to(b)
+}
+function slide() {
+  const h = +document.getElementById('sl-h').value
+  const s = +document.getElementById('sl-s').value
+  const l = +document.getElementById('sl-l').value
+  setAccent(hslToHex(h, s, l))
+  paintTracks(h, s, l)
+}
+function paintTracks(h, s, l) {
+  document.getElementById('sl-s').style.background =
+    'linear-gradient(90deg, hsl(' + h + ',0%,' + l + '%), hsl(' + h + ',100%,' + l + '%))'
+  document.getElementById('sl-l').style.background =
+    'linear-gradient(90deg, #000, hsl(' + h + ',' + s + '%,50%), #fff)'
+}
+function syncSliders(hex) {
+  const [h, s, l] = hexToHsl(hex)
+  document.getElementById('sl-h').value = h
+  document.getElementById('sl-s').value = s
+  document.getElementById('sl-l').value = l
+  paintTracks(h, s, l)
+}
+function pickPreset(c) {
+  setAccent(c)
+  syncSliders(c)
 }
 function openSettings() {
   const presets = ['#ffb454', '#6ee7b7', '#82b8e8', '#f07f78', '#d8b4fe', '#e2e8f0']
+  const cur = localStorage.getItem('slab-accent') ?? '#ffb454'
   document.getElementById('dtitle').textContent = 'settings'
   document.getElementById('dapps').innerHTML = ''
   document.getElementById('dbody').innerHTML =
     '<div class="setrow"><span class="k">accent color</span>'
-    + '<input type="color" id="accent-input" value="' + (localStorage.getItem('slab-accent') ?? '#ffb454') + '" oninput="setAccent(this.value)">'
-    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="setAccent(\\'' + c + '\\')"></i>').join('') + '</span>'
+    + '<span class="preview"><span class="chipbox"></span><code id="accent-hex">' + cur + '</code></span>'
+    + '<span class="swatches">' + presets.map(c => '<i style="background:' + c + '" onclick="pickPreset(\\'' + c + '\\')"></i>').join('') + '</span>'
+    + '</div>'
+    + '<div class="setrow sliders">'
+    +   '<div class="srow"><label>hue</label><input type="range" id="sl-h" min="0" max="360" oninput="slide()" style="background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)"></div>'
+    +   '<div class="srow"><label>sat</label><input type="range" id="sl-s" min="0" max="100" oninput="slide()"></div>'
+    +   '<div class="srow"><label>lum</label><input type="range" id="sl-l" min="20" max="85" oninput="slide()"></div>'
     + '</div>'
     + '<div class="setrow"><span class="k">state</span><span style="color:var(--faint)">~/.slab · state.json, secrets/, repos/</span></div>'
+  syncSliders(cur)
   drawer.style.display = 'block'
 }
 load()
