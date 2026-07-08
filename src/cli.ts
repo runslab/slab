@@ -91,6 +91,10 @@ program.hook('preAction', async (_thisCommand, actionCommand) => {
     fail(new Error(`"slab ${actionCommand.name()}" runs on the machine itself — ssh to ${target} for that`))
   }
   try {
+    if (target === 'any') {
+      await scheduleOnLeastBusy(actionCommand)
+      return
+    }
     const [{ node }, { peers }] = await Promise.all([client.health(), client.listPeers()])
     if (target === node) return   // targeting ourselves — stay local
     const peer = peers.find((p) => p.name === target)
@@ -103,6 +107,40 @@ program.hook('preAction', async (_thisCommand, actionCommand) => {
     fail(err)
   }
 })
+
+// --node any: pick the node with the fewest active jobs. Only for `slab run`,
+// and only git-sourced jobs can roam (a local dir doesn't exist on peers) —
+// dir-sourced jobs stay local with a note.
+const JOB_ACTIVE = new Set(['queued', 'building', 'running'])
+async function scheduleOnLeastBusy(actionCommand: { name(): string; args: string[] }): Promise<void> {
+  if (actionCommand.name() !== 'run') {
+    throw new Error('--node any only applies to "slab run" — name a node for other commands')
+  }
+  const src = actionCommand.args[0]
+  const roams = !!src && looksLikeGitUrl(src) && !isDir(path.resolve(src))
+  const { node: localName } = await client.health()
+  if (!roams) {
+    console.error(`scheduling on ${localName} — directory sources can't roam (use a git url to fan out)`)
+    return
+  }
+  const { peers } = await client.listPeers()
+  const candidates = [
+    { name: localName ?? 'local', c: client },
+    ...peers.map((p) => ({ name: p.name, c: clientFor(p.url, p.token, 4000) })),
+  ]
+  const loads = await Promise.all(candidates.map(async (cand) => {
+    try {
+      const { jobs } = await cand.c.listJobs()
+      return { ...cand, active: jobs.filter((j) => JOB_ACTIVE.has(j.state)).length }
+    } catch {
+      return { ...cand, active: Infinity }   // unreachable — never picked
+    }
+  }))
+  const winner = loads.reduce((best, x) => (x.active < best.active ? x : best), loads[0])
+  if (!Number.isFinite(winner.active)) throw new Error('no reachable node to schedule on')
+  console.error(`scheduling on ${winner.name} (${winner.active} active job${winner.active === 1 ? '' : 's'})`)
+  api = winner.c
+}
 
 program
   .command('create [source]')

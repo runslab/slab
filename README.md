@@ -185,9 +185,10 @@ Rough order; nothing here is promised, everything here is intended.
    node renders as its own band — sun badge, systems as tiles, dead nodes
    shown honestly) and **`slab --node <name>`** targeting (any command
    against any peer: `slab --node garage deploy owner/repo`, resolved from
-   the peer registry, tokens included). Next: `slab run --node any` — jobs
-   scheduled onto whichever node has capacity — a bunch of slabs, one
-   hyperscaler.
+   the peer registry, tokens included) and **`slab run --node any`** — git-
+   sourced jobs land on whichever node has the fewest active jobs. A bunch
+   of slabs, one hyperscaler: this lane is done pending a real scheduler
+   (capacity signals beyond job count).
 7. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
    interface already isolates Docker; a second driver renders the same
    manifest to Fargate/Lambda/RDS (or Fly machines). One manifest, one verb
