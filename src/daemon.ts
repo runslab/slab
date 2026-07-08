@@ -1,6 +1,7 @@
 // slab — daemon entrypoint. Runs the HTTP API (DAEMON_PORT) and the ingress
 // proxy (PROXY_PORT) in a single process.
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import express, { Request, Response, NextFunction } from 'express'
 import { AppRecord, Engine, JobRecord, Manifest, SystemManifest, SystemRecord, DAEMON_PORT, PROXY_PORT } from './types'
@@ -45,6 +46,7 @@ function idParam(req: Request): string {
   return Array.isArray(v) ? v[0] : v
 }
 
+// Shared slug rules for job names and the node name (same shape as app names)
 const JOB_NAME_RE = /^[a-z][a-z0-9-]{1,30}$/
 function sanitizeJobName(raw: string): string {
   let name = raw.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
@@ -114,6 +116,7 @@ async function main(): Promise<void> {
   const state = loadState()
   state.systems ??= {}
   state.jobs ??= {}
+  state.nodeName ??= sanitizeJobName(os.hostname().replace(/\.(local|lan|home)$/i, ''))
   const systems = state.systems // non-optional local alias, safe to use inside closures/handlers
   const jobs = state.jobs
   const engine: Engine = createEngine()
@@ -666,8 +669,18 @@ async function main(): Promise<void> {
     res.status(204).end()
   }))
 
+  api.put('/v1/node', wrap(async (req, res) => {
+    const name = req.body?.name
+    if (typeof name !== 'string' || !JOB_NAME_RE.test(name)) {
+      throw new HttpError(400, 'body must be { name } — lowercase letters, digits, hyphens, 2-31 chars')
+    }
+    state.nodeName = name
+    saveState(state)
+    res.json({ node: name })
+  }))
+
   api.get('/v1/health', wrap(async (req, res) => {
-    const payload = { status: 'ok', apps: Object.keys(state.apps).length, proxyPort: PROXY_PORT }
+    const payload = { status: 'ok', node: state.nodeName, apps: Object.keys(state.apps).length, proxyPort: PROXY_PORT }
     if ((req.headers.accept ?? '').includes('text/html')) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
       res.send(apiHumanHtml('/v1/health', payload))

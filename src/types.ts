@@ -41,6 +41,8 @@ export interface SlabState {
   apps: Record<string, AppRecord>
   systems?: Record<string, SystemRecord>   // optional for state-file back-compat
   jobs?: Record<string, JobRecord>         // optional for state-file back-compat
+  nodeName?: string         // this daemon's identity (defaults to the hostname);
+                            // groundwork for multi-node: many named slabs, one view
   nextHostPort: number      // starts at 20000
 }
 
@@ -90,7 +92,8 @@ export interface JobRecord {
 //   GET    /v1/apps/:name/secrets       -> { keys: string[] }  (names only, never values)
 //   POST   /v1/apps/:name/expose        -> open Cloudflare quick tunnel -> { app } (publicUrl set)
 //   POST   /v1/apps/:name/hide          -> close tunnel -> { app }
-//   GET    /v1/health                   -> { status: 'ok', apps: number, proxyPort: number }
+//   GET    /v1/health                   -> { status: 'ok', node: string, apps: number, proxyPort: number }
+//   PUT    /v1/node                     -> body { name } ; rename this daemon node -> { node }
 //
 //   GET    /v1/jobs                     -> { jobs: JobRecord[] } (newest first)
 //   POST   /v1/jobs                     -> body { sourceDir? | gitUrl?, image?, command?: string[],

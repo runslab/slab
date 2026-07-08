@@ -26,7 +26,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export const client = {
-  health: () => req<{ status: string; apps: number; proxyPort: number }>('GET', '/v1/health'),
+  health: () => req<{ status: string; node?: string; apps: number; proxyPort: number }>('GET', '/v1/health'),
+  setNode: (name: string) => req<{ node: string }>('PUT', '/v1/node', { name }),
   listApps: () => req<{ apps: AppRecord[] }>('GET', '/v1/apps'),
   createApp: (source: { sourceDir?: string; gitUrl?: string }) => req<{ app: AppRecord }>('POST', '/v1/apps', source),
   getApp: (name: string) => req<{ app: AppRecord }>('GET', `/v1/apps/${name}`),

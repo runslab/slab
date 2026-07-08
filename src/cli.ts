@@ -393,8 +393,21 @@ program
   .command('status')
   .description('daemon status')
   .action(action(async () => {
-    const { status, apps, proxyPort } = await client.health()
-    console.log(`daemon: ${status} — ${apps} app${apps === 1 ? '' : 's'}, proxy :${proxyPort}`)
+    const { status, node, apps, proxyPort } = await client.health()
+    console.log(`daemon: ${status}${node ? ` — node "${node}"` : ''} — ${apps} app${apps === 1 ? '' : 's'}, proxy :${proxyPort}`)
+  }))
+
+program
+  .command('node [name]')
+  .description("print or set this daemon node's name (a slab node is one machine running the daemon)")
+  .action(action(async (name?: string) => {
+    if (name) {
+      const { node } = await client.setNode(name)
+      console.log(`node is now "${node}"`)
+    } else {
+      const { node } = await client.health()
+      console.log(node ?? '(unnamed — set one with: slab node <name>)')
+    }
   }))
 
 program

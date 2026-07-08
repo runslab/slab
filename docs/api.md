@@ -181,8 +181,20 @@ Remove the job's container and record.
 
 ### `GET /v1/health`
 
-- Response `200`: `{ "status": "ok", "apps": number, "proxyPort": number }`.
-  Useful as a first call to confirm the daemon is up before anything else.
+- Response `200`: `{ "status": "ok", "node": string, "apps": number,
+  "proxyPort": number }`. Useful as a first call to confirm the daemon is
+  up before anything else. `node` is this daemon's name (defaults to the
+  machine hostname; rename via `PUT /v1/node` / `slab node <name>`).
+
+### `PUT /v1/node`
+
+Rename this daemon node. A node is one machine running the slab daemon —
+naming it is the identity groundwork for running several slabs.
+
+- Body: `{ "name": string }` — same rules as app names
+  (`^[a-z][a-z0-9-]{1,30}$`).
+- Response `200`: `{ "node": string }`.
+- Errors: `400` on an invalid name.
 
 ## unmapped routes
 

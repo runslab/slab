@@ -102,11 +102,16 @@ Rough order; nothing here is promised, everything here is intended.
 5. **Named tunnels.** Stable hostnames on your own domain (Cloudflare named
    tunnels) instead of rotating trycloudflare URLs. Same code path as
    `expose`, config instead of chance.
-6. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
+6. **Multi-node.** Node identity shipped: every daemon has a name
+   (defaults to the hostname; `slab node <name>`, shown on the dashboard).
+   Next: one dashboard reads many nodes (each rack wall labeled by node),
+   `slab --node <name>` targeting, and jobs scheduled onto whichever node
+   has capacity — a bunch of slabs, one hyperscaler.
+7. **Multi-target drivers — `slab deploy --target aws|fly`.** The Engine
    interface already isolates Docker; a second driver renders the same
    manifest to Fargate/Lambda/RDS (or Fly machines). One manifest, one verb
    set, many targets — agents never learn AWS, they learn slab.
-7. **Go rewrite (v1.0, decided).** TypeScript was the right spike language —
+8. **Go rewrite (v1.0, decided).** TypeScript was the right spike language —
    MCP SDK first-class, product-in-a-day. Go is the right shipping language:
    the entire container/networking neighborhood lives there (Docker client,
    `httputil.ReverseProxy`, cloudflared itself), goroutines match the

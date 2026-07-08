@@ -56,6 +56,7 @@ export function dashboardHtml(proxyPort: number): string {
   header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 26px; }
   header h1 { font-size: 12px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: var(--faint); }
   header h1 b { color: var(--amber); font-weight: 700; }
+  .nodetag { font-size: 10px; letter-spacing: .18em; color: var(--accent); margin-left: 14px; }
   .stats { display: flex; gap: 28px; text-align: right; }
   .stat b { display: block; font-size: 20px; font-weight: 700; color: var(--text); }
   .stat span { font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: var(--faint); }
@@ -423,6 +424,25 @@ export function dashboardHtml(proxyPort: number): string {
 
   .empty { border: 1px dashed var(--edge); border-radius: 7px; padding: 44px; text-align: center; color: var(--faint); }
   .empty code { color: var(--amber); }
+
+  /* ── empty bay: mount a unit from the dashboard (git url / owner/repo / path) ── */
+  #newbay {
+    border: 1px dashed var(--edge); border-radius: 8px; margin-top: 14px;
+    color: var(--faint); background: rgba(0,0,0,.08);
+  }
+  body.overview #newbay { display: none; }
+  #newbay .nb-closed { padding: 14px 22px; cursor: pointer; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+  #newbay .nb-closed:hover { color: var(--accent); }
+  #newbay .nb-form { display: none; padding: 14px 22px; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #newbay.open .nb-closed { display: none; }
+  #newbay.open { border-color: var(--accent); }
+  #newbay.open .nb-form { display: flex; }
+  #newbay input {
+    flex: 1; min-width: 260px; font: inherit; color: var(--text);
+    background: var(--drawer-bg); border: 1px solid var(--edge); border-radius: 5px; padding: 7px 12px;
+  }
+  #newbay input:focus { outline: none; border-color: var(--accent); }
+  #newbay .errmsg { flex-basis: 100%; }
   footer { color: var(--faint); font-size: 11px; margin-top: 18px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
   .settings { background: none; border: none; color: var(--faint); font: inherit; font-size: 9px;
     text-transform: uppercase; letter-spacing: .14em; cursor: pointer; padding: 2px 4px; }
@@ -474,7 +494,7 @@ export function dashboardHtml(proxyPort: number): string {
 <div id="cube"><div id="face-rack">
 <div class="wrap">
 <header>
-  <h1>the localhost <b>hyperscaler</b></h1>
+  <h1>the localhost <b>hyperscaler</b><span class="nodetag" id="nodetag"></span></h1>
   <div class="stats">
     <div class="stat"><b id="s-apps">–</b><span>apps</span></div>
     <div class="stat"><b id="s-run">–</b><span>running</span></div>
@@ -492,6 +512,15 @@ export function dashboardHtml(proxyPort: number): string {
 <div class="jobdeck" id="jobs" style="display:none"></div>
 <div class="layout">
   <div id="cabinets"></div>
+  <div id="newbay">
+    <div class="nb-closed" onclick="bayOpen()">&#8853; empty bay — mount a unit</div>
+    <form class="nb-form" onsubmit="baySubmit(event)">
+      <input id="nb-input" placeholder="github url · owner/repo · /absolute/path" spellcheck="false" autocomplete="off">
+      <button type="submit" class="hot">mount + deploy</button>
+      <button type="button" onclick="bayClose()">cancel</button>
+      <div class="errmsg" id="nb-err"></div>
+    </form>
+  </div>
   <div id="overview"></div>
 </div>
 <footer>
@@ -524,6 +553,39 @@ function toggleTheme() {
   const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
   document.documentElement.dataset.theme = t
   localStorage.setItem('slab-theme', t)
+}
+fetch('/v1/health').then(r => r.json()).then(h => {
+  if (h.node) document.getElementById('nodetag').textContent = '◆ ' + h.node
+}).catch(() => {})
+
+// ── empty bay: mount a unit straight from the rack ───────────────────────────
+function bayOpen() {
+  document.getElementById('newbay').classList.add('open')
+  document.getElementById('nb-input').focus()
+}
+function bayClose() {
+  document.getElementById('newbay').classList.remove('open')
+  document.getElementById('nb-err').textContent = ''
+  document.getElementById('nb-input').value = ''
+}
+async function baySubmit(e) {
+  e.preventDefault()
+  const input = document.getElementById('nb-input')
+  const err = document.getElementById('nb-err')
+  const src = input.value.trim()
+  if (!src) return
+  err.textContent = ''
+  const body = src.startsWith('/') ? { sourceDir: src } : { gitUrl: src }
+  const r = await fetch('/v1/apps', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  const d = await r.json().catch(() => ({}))
+  if (!r.ok) { err.textContent = d.error ?? ('mount failed (' + r.status + ')'); return }
+  // fire the deploy and let the rack animate it (building LED -> power light);
+  // errors land on the unit's faceplate via the record's error field
+  fetch('/v1/apps/' + d.app.name + '/deploy', { method: 'POST' }).catch(() => {})
+  bayClose()
+  load()
 }
 function toggle() {
   // one gesture, whole rack: flip every board together
@@ -771,7 +833,7 @@ function render() {
   const container = document.getElementById('cabinets')
   if (!apps.length) {
     container.innerHTML = '<div class="cabinet"><div class="vents"></div>'
-      + '<div class="rack"><div class="empty">rack is empty — <code>slab deploy ./yourapp</code> mounts the first unit</div></div>'
+      + '<div class="rack"><div class="empty">rack is empty — mount the first unit in the bay below, or <code>slab deploy ./yourapp</code></div></div>'
       + '<div class="cabmark">slab</div></div>'
     lastStructSig = ''
     return
@@ -1293,7 +1355,8 @@ export function apiHumanHtml(path: string, data: unknown): string {
     ['GET', '/v1/jobs/:id/logs?tail=100', 'job logs'],
     ['POST', '/v1/jobs/:id/cancel', 'cancel a running job'],
     ['DELETE', '/v1/jobs/:id', 'remove job'],
-    ['GET', '/v1/health', 'daemon status'],
+    ['GET', '/v1/health', 'daemon status (+node name)'],
+    ['PUT', '/v1/node', '{ name } — rename this node'],
   ]
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>slab api — ${path}</title>
 <script>
