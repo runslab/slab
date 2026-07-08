@@ -241,6 +241,7 @@ async function main(): Promise<void> {
       record.state = 'running'
       record.deployedAt = new Date().toISOString()
       record.error = null
+      broadcast({ type: 'deploy', app: record.name })
       saveState(state)
     } catch (err) {
       record.state = 'error'
@@ -454,6 +455,42 @@ async function main(): Promise<void> {
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.send(dashboardHtml(PROXY_PORT))
   })
+
+  // Player: round-robin healthchecks through the ingress — every note is a
+  // real request; if you can hear an app, it's answering.
+  let playTimer: NodeJS.Timeout | null = null
+  let playUntil = 0
+  function startPlay(seconds: number): void {
+    playUntil = Date.now() + seconds * 1000
+    if (playTimer) return
+    let idx = 0
+    playTimer = setInterval(() => {
+      if (Date.now() > playUntil) {
+        if (playTimer) clearInterval(playTimer)
+        playTimer = null
+        return
+      }
+      const targets = Object.values(state.apps).filter(
+        (a) => a.state === 'running' && a.manifest.public !== false && a.hostPort != null
+      )
+      if (!targets.length) return
+      const app = targets[idx % targets.length]
+      idx += 1
+      const req = require('http').request(
+        { host: '127.0.0.1', port: PROXY_PORT, path: '/health', method: 'GET',
+          headers: { Host: app.name + '.localhost' }, timeout: 3000 },
+        (r: { resume: () => void }) => { r.resume() }
+      )
+      req.on('error', () => { /* silence is the signal */ })
+      req.end()
+    }, 340)
+  }
+
+  api.post('/v1/play', wrap(async (req, res) => {
+    const seconds = Math.min(300, Math.max(5, Number(req.body?.seconds ?? 45)))
+    startPlay(seconds)
+    res.json({ playing: true, seconds })
+  }))
 
   // Live event stream (SSE) — the dashboard's audio monitor listens here
   const sseClients = new Set<Response>()

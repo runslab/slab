@@ -105,7 +105,7 @@ export function dashboardHtml(proxyPort: number): string {
 
   /* monitor deck: spectrum analyzer + listen knob (a component above the cabinets) */
   .deck {
-    display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center;
+    display: grid; grid-template-columns: auto auto 1fr auto; gap: 18px; align-items: center;
     background:
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
       linear-gradient(180deg, #202127 0%, #17181d 18%, #101116 60%, #15161b 100%);
@@ -129,6 +129,10 @@ export function dashboardHtml(proxyPort: number): string {
   .knob.on { transform: rotate(135deg); }
   .knob.on::after { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
   .knobwrap .klbl { font-size: 8px; letter-spacing: .18em; color: var(--faint); text-transform: uppercase; }
+  .playbtn { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; color: var(--dim); font-size: 13px;
+    background: radial-gradient(circle at 35% 30%, #33363e, #14151a 75%); border: 1px solid #3a3d45; padding: 0;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 2px 5px rgba(0,0,0,.5); }
+  .playbtn:hover { color: var(--accent); border-color: var(--accent); }
   .knob.on + .klbl { color: var(--accent); }
   #viz { width: 100%; height: 64px; display: block; background: #0b0c09; border: 1px solid #26282e; border-radius: 4px;
     box-shadow: inset 0 1px 5px rgba(0,0,0,.8); }
@@ -322,6 +326,7 @@ export function dashboardHtml(proxyPort: number): string {
 </header>
 <div class="deck">
   <div class="knobwrap"><button class="knob" id="knob" onclick="toggleListen()"></button><span class="klbl">listen</span></div>
+  <div class="knobwrap"><button class="playbtn" onclick="playApps()">&#9654;</button><span class="klbl">play</span></div>
   <canvas id="viz" width="800" height="64"></canvas>
   <span class="lcd" id="deck-lcd">000 evt/min</span>
 </div>
@@ -650,11 +655,33 @@ function onLiveEvent(app) {
   evtTimes.push(Date.now())
   blip(app)
 }
+function playApps() {
+  if (!listening) toggleListen()   // user gesture — safe to start audio
+  fetch('/v1/play', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"seconds":45}' })
+}
+function deployChord(app) {
+  if (!listening || !audioCtx) return
+  const semi = SCALE[hashStr(app) % SCALE.length]
+  const t = audioCtx.currentTime
+  for (const off of [-12, 0]) {
+    const osc = audioCtx.createOscillator()
+    const gain = audioCtx.createGain()
+    osc.type = 'sine'
+    osc.frequency.value = 220 * Math.pow(2, (semi + off) / 12)
+    gain.gain.setValueAtTime(0.001, t)
+    gain.gain.exponentialRampToValueAtTime(0.12, t + 0.03)
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.8)
+    osc.connect(gain).connect(audioCtx.destination)
+    osc.start(t)
+    osc.stop(t + 0.85)
+  }
+}
 const es = new EventSource('/v1/events')
 es.onmessage = (m) => {
   try {
     const e = JSON.parse(m.data)
     if (e.type === 'request' && e.app) onLiveEvent(e.app)
+    if (e.type === 'deploy' && e.app) { energy[e.app] = 1; deployChord(e.app) }
   } catch { /* ignore */ }
 }
 function accentColor() {
