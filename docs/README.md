@@ -15,6 +15,7 @@ New here? [Install slab](../README.md#install), then read
 | [manifest.md](manifest.md) | complete `slab.toml` reference (+ zero-manifest inference) |
 | [skins.md](skins.md) | dashboard skins: built-ins + build your own with one CSS file |
 | [agents.md](agents.md) | the MCP tool surface — slab as an AI agent's infrastructure |
+| [providers/aws.md](providers/aws.md) | `--target aws`: App Runner / Lambda / Fargate in your own account |
 | [api.md](api.md) | every daemon HTTP route |
 
 ## design notes

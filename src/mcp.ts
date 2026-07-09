@@ -66,11 +66,12 @@ async function main() {
       inputSchema: {
         sourceDir: z.string().optional().describe('Absolute path to the app source directory containing slab.toml'),
         gitUrl: z.string().optional().describe('Git repository URL (https://, git@, or shorthand owner/repo); slab clones it and pulls on each deploy'),
+        target: z.string().optional().describe('Where the app runs: omit for local docker, or "aws" — services get App Runner (stable https url), functions get Lambda (scale-to-zero), in the operator\'s own AWS account'),
       },
     },
-    async ({ sourceDir, gitUrl }) => {
+    async ({ sourceDir, gitUrl, target }) => {
       try {
-        const { app } = await client.createApp(gitUrl ? { gitUrl } : { sourceDir })
+        const { app } = await client.createApp(gitUrl ? { gitUrl, target } : { sourceDir, target })
         return ok(app)
       } catch (err) {
         return fail(err)
@@ -90,13 +91,14 @@ async function main() {
           .optional()
           .describe('Absolute path to the app source directory; used to auto-create the app if not yet registered'),
         gitUrl: z.string().optional().describe('Git repository URL; the app is auto-created from the repo if not yet registered'),
+        target: z.string().optional().describe('Where the app runs (applies when first created): omit for local docker, or "aws" — services→App Runner, functions→Lambda, in the operator\'s own account. You never pick the AWS service; the manifest\'s type/public decide.'),
       },
     },
-    async ({ name, sourceDir, gitUrl }) => {
+    async ({ name, sourceDir, gitUrl, target }) => {
       try {
         let appName = name
         if (!appName && gitUrl) {
-          const { app } = await client.createApp({ gitUrl }).catch(async (e: Error) => {
+          const { app } = await client.createApp({ gitUrl, target }).catch(async (e: Error) => {
             if (!/exists/.test(e.message)) throw e
             const m = /app "([^"]+)"/.exec(e.message)
             return client.getApp(m ? m[1] : gitUrl)
@@ -109,7 +111,7 @@ async function main() {
             const { app } = await client.getApp(sourceDirToName(sourceDir))
             appName = app.name
           } catch {
-            const { app } = await client.createApp({ sourceDir })
+            const { app } = await client.createApp({ sourceDir, target })
             appName = app.name
           }
         }

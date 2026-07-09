@@ -32,6 +32,20 @@ name (`slab-<name>`), and its Docker label value (`slab.app=<name>`).
 Anything else is rejected at create/deploy time with `Invalid app name
 "..." — lowercase letters, digits, hyphens, 2-31 chars`.
 
+## `target` (optional, default `"docker"`)
+
+```toml
+target = "aws"
+```
+
+Where the app runs. Omit for this node's local Docker engine. `"aws"`
+renders the app onto AWS **in your own account** — and the substrate is
+picked from your intent, never named: services get App Runner (stable
+https URL), functions get Lambda (true scale-to-zero), `public = false`
+gets Fargate (beta). See [providers/aws.md](providers/aws.md). Also
+settable at create time with `slab deploy <src> --target aws`; changing an
+existing app's target requires `slab rm` first.
+
 ## `type` (optional, default `"service"`)
 
 ```toml

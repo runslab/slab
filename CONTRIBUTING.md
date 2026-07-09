@@ -41,11 +41,13 @@ SLAB_PORT=7866 SLAB_PROXY_PORT=8180 node dist/daemon.js`) and use
 
 ## cloud providers
 
-Want `slab deploy --target aws|fly|gcp`? That's the most valuable
-contribution surface — read
-[docs/design/providers.md](docs/design/providers.md) for the Provider API
-design, the AWS worked example, and the conformance checklist, then open a
-`provider: <name>` issue.
+Want `slab deploy --target fly|gcp|…`? That's the most valuable
+contribution surface. The **aws provider is the shipped reference**
+(`src/providers/aws.ts` — intent-routed: services → App Runner, functions
+→ Lambda) behind the Provider interface in `src/providers/provider.ts`.
+Read [docs/design/providers.md](docs/design/providers.md) for the API
+rules (wire-safe JSON, refs + endpoints, declared capabilities) and the
+conformance checklist, then open a `provider: <name>` issue.
 
 ## style
 

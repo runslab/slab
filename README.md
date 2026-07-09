@@ -121,6 +121,8 @@ must make running things legible, bounded, and reversible.
   URL for webhooks and demos.
 - **Named nodes.** Every daemon has an identity (`slab node`) — groundwork
   for multi-node.
+- **Cloud targets.** `slab deploy --target aws`: services → App Runner,
+  functions → Lambda, in your own account, no stored keys.
 
 More detail — full index at [docs/](docs/README.md):
 - [docs/getting-started.md](docs/getting-started.md) — install → deploy → everything
@@ -197,13 +199,16 @@ Rough order; nothing here is promised, everything here is intended.
    sourced jobs land on whichever node has the fewest active jobs. A bunch
    of slabs, one hyperscaler: this lane is done pending a real scheduler
    (capacity signals beyond job count).
-7. **Multi-target providers — `slab deploy --target aws|fly`.** The Engine
-   interface already isolates Docker; a provider renders the same manifest
-   to Fargate/Lambda/RDS (or Fly machines). One manifest, one verb set,
-   many targets — agents never learn AWS, they learn slab. **Design doc
-   up:** [docs/design/providers.md](docs/design/providers.md) — the
-   Provider API, the AWS worked example, and the conformance path for
-   contributors.
+7. **Multi-target providers — `slab deploy --target aws`** ✅ SHIPPED (v1).
+   One manifest, rendered onto AWS in *your own account* by intent:
+   services → App Runner (stable https URL), functions → Lambda (true
+   scale-to-zero), `public = false` → Fargate (beta). No stored keys —
+   slab runs as your existing AWS identity (EC2 instance role included).
+   Guide: [docs/providers/aws.md](docs/providers/aws.md); plugin API for
+   contributors (fly/gcp welcome):
+   [docs/design/providers.md](docs/design/providers.md). Next in this
+   lane: jobs + systems capabilities, native SDK implementation, more
+   providers.
 8. **Go rewrite (v1.0, decided).** TypeScript was the right spike language —
    MCP SDK first-class, product-in-a-day. Go is the right shipping language:
    the entire container/networking neighborhood lives there (Docker client,

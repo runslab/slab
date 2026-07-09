@@ -124,6 +124,17 @@ dashboard: empty bay → **rack up a system**, then patch wires in the
 workbench. Design: [design/systems.md](design/systems.md). Systems can span
 machines: [cluster.md](cluster.md) + [design/trunks.md](design/trunks.md).
 
+## the cloud as a target
+
+```bash
+slab deploy ./myapp --target aws     # or target = "aws" in slab.toml
+```
+
+Same manifest, rendered onto AWS **in your own account** (no stored keys —
+slab uses your `aws` CLI identity): services become App Runner (stable
+https URL), functions become Lambda (true scale-to-zero). Your local
+ingress still fronts them. Guide: [providers/aws.md](providers/aws.md).
+
 ## more machines
 
 One line installs slab on the next machine; a couple more make them a

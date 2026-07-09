@@ -1,8 +1,12 @@
 # providers — one manifest, many targets
 
-**Status: design.** This documents the plugin path for cloud partners and
-contributors — how `slab deploy --target aws` becomes real. Nothing here is
-built yet except the seam it grows from. Discussion → issues/PRs welcome.
+**Status: phase 1 shipped.** The Provider API below is implemented
+(`src/providers/provider.ts`) with the **aws provider**
+(`src/providers/aws.ts`, guide: [../providers/aws.md](../providers/aws.md))
+as the reference: intent-routed — `type = "service"` → App Runner,
+`type = "function"` → Lambda + Function URL, `public = false` → Fargate
+(beta). Jobs/systems/postgres capabilities and further providers (fly, gcp)
+are open — issues/PRs welcome.
 
 ## the one-sentence pitch
 
@@ -118,20 +122,22 @@ region = "us-east-1"
 profile = "slab"        # never store raw keys in slab state
 ```
 
-## worked example: the aws provider
+## worked example: the aws provider (as shipped)
+
+The core design rule this provider proved out: **the manifest's intent
+picks the substrate** — users and agents never choose an AWS service.
 
 | slab concept | AWS rendering |
 |---|---|
-| service | ECS Fargate service (1 task, `desiredCount` 1) behind Cloud Map |
-| function | Lambda container image + function URL (native wake-on-request) — or Fargate `desiredCount` 0/1 flipped by the daemon |
-| job | ECS `runTask`; `waitJob` polls `stoppedAt`; logs via CloudWatch |
-| image | build local → push ECR (`registry()`) |
-| system | one Cloud Map private DNS namespace + one security group per system; members resolve each other by name exactly like bridge DNS |
-| `public = false` | no load balancer, security group ingress only from system members |
-| ingress | the local proxy dials the task's public endpoint — `app.localhost:8080` keeps working from your machine |
-| postgres | RDS serverless v2 (capability optional in v1 — start without it) |
-| secrets/wires | plain env on the task definition (SSM later) |
-| teardown | `remove()` deletes service+task def; **TTL/budget guardrails (roadmap #4) are mandatory for cloud targets** — a forgotten Fargate service costs real money in a way a forgotten container doesn't |
+| service (public) | **App Runner** — stable random https URL, `stop` = pause (compute → $0) |
+| function | **Lambda** container + Function URL — native wake-on-request, $0 idle (images need the aws-lambda-web-adapter) |
+| `public = false` | **Fargate** service — BETA; the real systems/isolation story (Cloud Map namespace + per-system security groups) is future work |
+| job | ECS `runTask`; `waitJob` polls `stoppedAt`; logs via CloudWatch — *not built yet* |
+| image | always built/pulled as linux/amd64 and pushed to ECR (`resolveImage`) — App Runner/Lambda are ECR-only, and uniform arch kills platform bugs |
+| ingress | the local proxy dials the substrate endpoint (https + changeOrigin) — `app.localhost:8080` keeps working from your machine |
+| postgres | RDS serverless v2 — *not built yet*; wire a managed DB via secrets |
+| secrets/wires | plain env at deploy (SSM later) |
+| teardown | `remove()` deletes the service/function; **TTL/budget guardrails (roadmap #4) are mandatory for cloud targets** — a forgotten cloud service costs real money in a way a forgotten container doesn't |
 
 **Trunks across substrates:** a system spanning your laptop and AWS is just
 a waffle slab where one node's "bridge" is a Cloud Map namespace. The trunk

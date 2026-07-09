@@ -52,6 +52,7 @@ string with `isError: true`):
 | `slab_expose` | Give an app a public HTTPS URL on the internet via a Cloudflare quick tunnel (free, no account). Use when the app must receive webhooks or be reachable from outside this machine. The URL changes each time the tunnel reopens. |
 | `slab_hide` | Close an app's public tunnel so it is reachable only locally again. |
 | `slab_run` | Run a job to completion in an isolated container and return exit code + logs in one blocking call. Dockerfile mode or stock `image` with the source mounted at `/workspace`. The `systems` param joins the job to system networks — the sandbox for working ON a system. |
+| *(target param)* | `slab_create`/`slab_deploy` take `target: "aws"` — the agent never learns AWS: the manifest's `type`/`public` pick App Runner vs Lambda vs Fargate, in the operator's own account. |
 | `slab_jobs` | List jobs (state, exit code, command, timings), newest first. |
 | `slab_system_deploy` | Create/update + deploy a system from a `sourceFile` **or an inline `manifest`** — agents never need to write files. Members deploy in dependency order; placed members go to their nodes; trunks start automatically. |
 | `slab_system_list` | List systems: members, wires, last deploy. |
