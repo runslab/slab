@@ -243,9 +243,9 @@ async function main(): Promise<void> {
     try {
       if (record.gitUrl) {
         await cloneOrPull(record.gitUrl, path.basename(record.sourceDir))
-        // manifest may have changed upstream — re-read it
-        record.manifest = loadManifest(record.sourceDir)
       }
+      // manifest may have changed (upstream pull or local edits) — re-read it
+      record.manifest = loadManifest(record.sourceDir)
 
       // ── provider targets: build locally, push, hand off to the substrate ──
       const target = record.target ?? record.manifest.target
