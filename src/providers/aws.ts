@@ -207,7 +207,23 @@ export function createAwsProvider(): Provider {
     return remote
   }
 
+  // Built-and-pushed images are single-arch (whatever the local machine is —
+  // arm64 on apple silicon). Fargate defaults to amd64, so the task's
+  // runtimePlatform must match the image or placement fails with
+  // CannotPullContainerError. Registry-ref images (docker hub) are usually
+  // multi-arch — omit runtimePlatform and let Fargate pick.
+  async function imageArch(image: string): Promise<string | null> {
+    try {
+      const out = await run('docker', ['image', 'inspect', '--format', '{{.Architecture}}', image])
+      const arch = out.trim()
+      return arch === 'arm64' ? 'ARM64' : arch === 'amd64' ? 'X86_64' : null
+    } catch {
+      return null   // not in the local store (e.g. a hub ref) — let Fargate default
+    }
+  }
+
   async function registerTaskDef(app: AppRecord, image: string, env: Record<string, string>, roleArn: string, logGroup: string): Promise<string> {
+    const arch = await imageArch(image)
     const def = {
       family: `slab-${app.name}`,
       requiresCompatibilities: ['FARGATE'],
@@ -215,6 +231,7 @@ export function createAwsProvider(): Provider {
       cpu: cfg.cpu,
       memory: cfg.memory,
       executionRoleArn: roleArn,
+      ...(arch ? { runtimePlatform: { cpuArchitecture: arch, operatingSystemFamily: 'LINUX' } } : {}),
       containerDefinitions: [{
         name: app.name,
         image,

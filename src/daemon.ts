@@ -261,9 +261,13 @@ async function main(): Promise<void> {
         if (record.manifest.type === 'function' && !provider.capabilities.functions) {
           console.warn(`"${record.name}": functions aren't supported on ${target} — running as an always-on service`)
         }
-        const localTag = await engine.buildImage(record)
         const env = { ...record.manifest.env, ...getSecrets(record.name) }
-        const image = await provider.prepareImage(record, localTag)
+        // Prebuilt images: hand the ref straight to the substrate — it pulls
+        // the multi-arch manifest itself and picks its own platform. Only
+        // Dockerfile apps build locally and push.
+        const image = record.manifest.image
+          ? record.manifest.image
+          : await provider.prepareImage(record, await engine.buildImage(record))
         const { ref, endpoint } = await provider.deploy(record, image, env)
         record.target = target
         record.ref = ref
