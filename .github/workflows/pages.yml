@@ -1,4 +1,4 @@
-# Deploys site/ to GitHub Pages (runslab.github.io/slab).
+# Deploys site/ to GitHub Pages (jasonmimick.github.io/slab).
 # The site is a single self-contained index.html — no build step.
 name: pages
 on:
