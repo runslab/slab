@@ -1,0 +1,6 @@
+# Front tier: the only public member. Renders the order board and proxies
+# writes to waffle-api server-side (the browser can never reach the private
+# api — this tier is the boundary).
+name = "waffle-web"
+type = "service"
+port = 3000

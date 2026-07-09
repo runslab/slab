@@ -1,0 +1,34 @@
+# waffle — a 3-tier web app as one system: public web, private api,
+# pg-cluster underneath. Deploy: slab up examples/waffle
+#
+# Why "waffle": with the node line below uncommented, the web tier runs on a
+# DIFFERENT machine — the system spans nodes and the trunk conceals the
+# distance (docs/README.md cast: one-way, two-way, waffle).
+#
+# Single node works out of the box. To span, point node at one of your peers
+# (`slab peer ls`) and redeploy:
+name = "waffle"
+
+[apps.waffle-web]
+source = "./web"
+# node = "your-peer-name"
+
+[apps.waffle-api]
+source = "./api"
+
+# The pg-cluster members, reused by source — deploying waffle brings the whole
+# database tier with it (or adopts it if examples/pg-cluster is already up).
+[apps.pg-primary]
+source = "../pg-cluster/pg-primary"
+
+[apps.pg-replica]
+source = "../pg-cluster/pg-replica"
+
+[apps.pgbouncer]
+source = "../pg-cluster/pgbouncer"
+
+[wires]
+"waffle-web.API_URL" = "http://waffle-api:3000"
+"waffle-api.DATABASE_URL" = "postgresql://app:apppass@pgbouncer:6432/appdb"
+"pg-replica.POSTGRESQL_MASTER_HOST" = "pg-primary"
+"pgbouncer.POSTGRESQL_HOST" = "pg-primary"

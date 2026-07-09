@@ -1,0 +1,7 @@
+# Middle tier: owns the schema, talks to pg-cluster via pgbouncer
+# (DATABASE_URL arrives via the system's [wires]). Private — only
+# system-mates can reach it.
+name = "waffle-api"
+type = "service"
+port = 3000
+public = false
