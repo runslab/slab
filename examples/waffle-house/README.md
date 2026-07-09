@@ -1,14 +1,14 @@
-# waffle
+# waffle-house
 
 A 3-tier web app as one system — and the reason it's named after the site's
 **waffle** cast: uncomment one line and a tier moves to another machine.
 
 ```
-slab up examples/waffle
+slab up examples/waffle-house
 ```
 
 ```
-┌─ waffle ────────────────────────────────────────────────┐
+┌─ waffle-house ────────────────────────────────────────────────┐
 │  browser ──> waffle-web (public)                        │
 │                  │ API_URL (wire)                       │
 │              waffle-api (private)                       │
@@ -33,7 +33,7 @@ source = "./web"
 node = "your-peer-name"   # slab peer ls
 ```
 
-and `slab up examples/waffle` again. The web tier now runs on the peer, the
+and `slab up examples/waffle-house` again. The web tier now runs on the peer, the
 api + database stay put, and the trunk conceals the distance — `API_URL`
 keeps working, nothing else changes. That's the whole point.
 

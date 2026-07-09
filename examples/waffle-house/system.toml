@@ -1,5 +1,5 @@
 # waffle — a 3-tier web app as one system: public web, private api,
-# pg-cluster underneath. Deploy: slab up examples/waffle
+# pg-cluster underneath. Deploy: slab up examples/waffle-house
 #
 # Why "waffle": with the node line below uncommented, the web tier runs on a
 # DIFFERENT machine — the system spans nodes and the trunk conceals the
@@ -7,7 +7,7 @@
 #
 # Single node works out of the box. To span, point node at one of your peers
 # (`slab peer ls`) and redeploy:
-name = "waffle"
+name = "waffle-house"
 
 [apps.waffle-web]
 source = "./web"

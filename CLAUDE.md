@@ -120,7 +120,7 @@ Single apps (hello-fn, whoami, grafana, hello-service, pg-notes) + system
 tomls (demo, arcade, observatory, studio, lakes, trunk-demo) + curated
 systems: **pg-cluster** (postgres primary + streaming replica behind
 pgbouncer, all private, volumes — compose-grade, no auto-failover) and
-**waffle** (3-tier web app over pg-cluster; uncomment `node =` to span
+**waffle-house** (3-tier web app over pg-cluster; uncomment `node =` to span
 machines). Images from bitnami must use **`bitnamilegacy/*`** — the bitnami
 Docker Hub catalog is frozen (2025).
 
