@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/runslab/slab/go/internal/engine"
+	"github.com/runslab/slab/go/internal/gitsrc"
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/state"
 )
@@ -194,9 +195,9 @@ func (s *Server) spanningRoutes(mux *http.ServeMux) {
 			if s.St.Apps[memberName] != nil {
 				continue
 			}
-			src := cfg["source"]
-			if !filepath.IsAbs(src) {
-				errJSON(w, 501, fmt.Sprintf("member %q source %q — slabd adopt supports absolute paths only for now (git sources are a later rung)", memberName, src))
+			src, gitURL, err := gitsrc.Resolve(cfg["source"], "/")
+			if err != nil {
+				errJSON(w, 400, fmt.Sprintf("member %q: %s", memberName, err.Error()))
 				return
 			}
 			mf, err := manifest.Load(src)
@@ -204,7 +205,7 @@ func (s *Server) spanningRoutes(mux *http.ServeMux) {
 				errJSON(w, 400, fmt.Sprintf("member %q: %s", memberName, err.Error()))
 				return
 			}
-			s.St.Apps[memberName] = &state.AppRecord{Name: memberName, SourceDir: src, Manifest: mf, State: state.Created}
+			s.St.Apps[memberName] = &state.AppRecord{Name: memberName, SourceDir: src, GitURL: gitURL, Manifest: mf, State: state.Created}
 		}
 		existing := s.St.Systems[body.Name]
 		origin := body.Origin

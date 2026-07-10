@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/runslab/slab/go/internal/engine"
+	"github.com/runslab/slab/go/internal/gitsrc"
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/state"
 )
@@ -53,11 +54,20 @@ func (s *Server) Handler() http.Handler {
 			GitURL    string `json:"gitUrl"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body.SourceDir == "" || !filepath.IsAbs(body.SourceDir) {
+		source := body.GitURL
+		if source == "" {
+			source = body.SourceDir
+		}
+		if source == "" || (body.GitURL == "" && !filepath.IsAbs(source)) {
 			errJSON(w, 400, "body must be { sourceDir: <absolute path> } or { gitUrl } (+ optional target)")
 			return
 		}
-		m, err := manifest.Load(body.SourceDir)
+		sourceDir, gitURL, err := gitsrc.Resolve(source, "/")
+		if err != nil {
+			errJSON(w, 400, err.Error())
+			return
+		}
+		m, err := manifest.Load(sourceDir)
 		if err != nil {
 			errJSON(w, 400, err.Error())
 			return
@@ -67,7 +77,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		rec := &state.AppRecord{
-			Name: m.Name, SourceDir: body.SourceDir, Manifest: m,
+			Name: m.Name, SourceDir: sourceDir, GitURL: gitURL, Manifest: m,
 			State: state.Created, Version: 0,
 		}
 		s.St.Apps[m.Name] = rec
@@ -200,9 +210,10 @@ func (s *Server) Handler() http.Handler {
 			if _, exists := s.St.Apps[name]; exists {
 				continue // adopt the existing app
 			}
-			src := m.Source
-			if !filepath.IsAbs(src) {
-				src = filepath.Join(baseDir, src)
+			src, gitURL, err := gitsrc.Resolve(m.Source, baseDir)
+			if err != nil {
+				errJSON(w, 400, fmt.Sprintf("member %q: %s", name, err.Error()))
+				return
 			}
 			mf, err := manifest.Load(src)
 			if err != nil {
@@ -213,7 +224,7 @@ func (s *Server) Handler() http.Handler {
 				errJSON(w, 400, fmt.Sprintf("member key %q does not match manifest name %q", name, mf.Name))
 				return
 			}
-			s.St.Apps[name] = &state.AppRecord{Name: name, SourceDir: src, Manifest: mf, State: state.Created}
+			s.St.Apps[name] = &state.AppRecord{Name: name, SourceDir: src, GitURL: gitURL, Manifest: mf, State: state.Created}
 		}
 		rec := &state.SystemRecord{
 			Name: sm.Name, Members: members, MemberNodes: memberNodes,
@@ -309,6 +320,11 @@ func (s *Server) trunkKey(sys *state.SystemRecord) string { return s.NodeName + 
 // (prebuilt only for now — Dockerfile builds are the next rung), assemble
 // env (PORT < manifest.env), recreate the container.
 func (s *Server) deployApp(ctx context.Context, rec *state.AppRecord) error {
+	if rec.GitURL != nil { // git sources pull on every redeploy
+		if _, err := gitsrc.CloneOrPull(*rec.GitURL, filepath.Base(rec.SourceDir)); err != nil {
+			return err
+		}
+	}
 	m, err := manifest.Load(rec.SourceDir) // manifest may have changed — re-read it
 	if err != nil {
 		return err

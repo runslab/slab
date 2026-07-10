@@ -253,7 +253,9 @@ func demux(raw []byte) string {
 // RunJob creates and starts a one-shot container: slab-job-<id>, labeled,
 // no restart policy, networks joined BEFORE start (a fast job would race
 // the DNS setup otherwise). Returns the container id.
-func (e *Engine) RunJob(ctx context.Context, id string, imageTag string, command []string, env map[string]string, networks []string) (string, error) {
+// workspace, when set, is a host dir bind-mounted at /workspace (image-mode
+// source jobs); the container also starts there.
+func (e *Engine) RunJob(ctx context.Context, id string, imageTag string, command []string, env map[string]string, networks []string, workspace string) (string, error) {
 	// a crashed prior daemon could have left a container for this id behind
 	list, _ := e.cli.ContainerList(ctx, container.ListOptions{
 		All: true, Filters: filters.NewArgs(filters.Arg("label", "slab.job="+id)),
@@ -271,6 +273,10 @@ func (e *Engine) RunJob(ctx context.Context, id string, imageTag string, command
 		cfg.Cmd = command
 	}
 	host := &container.HostConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled}}
+	if workspace != "" {
+		cfg.WorkingDir = "/workspace"
+		host.Binds = []string{workspace + ":/workspace"}
+	}
 	created, err := e.cli.ContainerCreate(ctx, cfg, host, nil, nil, "slab-job-"+id)
 	if err != nil {
 		return "", fmt.Errorf("failed to create container for job %s: %w", id, err)

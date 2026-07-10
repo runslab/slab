@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/runslab/slab/go/internal/gitsrc"
 	"github.com/runslab/slab/go/internal/state"
 )
 
@@ -85,15 +88,34 @@ func (s *Server) jobRoutes(mux *http.ServeMux) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 
-		if body.SourceDir != "" || body.GitURL != "" {
-			errJSON(w, 501, "source jobs (Dockerfile builds / workspace mounts) are a later rung of slabd — pass { image, command }")
-			return
+		var sourceDir, gitURL *string
+		sourceInput := body.GitURL
+		if sourceInput == "" {
+			sourceInput = body.SourceDir
 		}
-		if body.Image == "" {
+		if sourceInput != "" {
+			if body.GitURL == "" && !filepath.IsAbs(sourceInput) {
+				errJSON(w, 400, "sourceDir must be an absolute path")
+				return
+			}
+			dir, gu, err := gitsrc.Resolve(sourceInput, "/")
+			if err != nil {
+				errJSON(w, 400, err.Error())
+				return
+			}
+			sourceDir, gitURL = &dir, gu
+		}
+		if sourceDir == nil && body.Image == "" {
 			errJSON(w, 400, "body must include { sourceDir } or { gitUrl } (a Dockerfile to build) and/or { image } (a stock image; source is mounted at /workspace)")
 			return
 		}
-		if len(body.Command) == 0 {
+		if sourceDir != nil && body.Image == "" {
+			if _, err := os.Stat(filepath.Join(*sourceDir, "Dockerfile")); err != nil {
+				errJSON(w, 400, fmt.Sprintf("%s has no Dockerfile — pass { image } to run the source in a stock image instead", *sourceDir))
+				return
+			}
+		}
+		if sourceDir == nil && len(body.Command) == 0 {
 			errJSON(w, 400, "a bare image job needs a { command } to run")
 			return
 		}
@@ -114,18 +136,25 @@ func (s *Server) jobRoutes(mux *http.ServeMux) {
 			}
 		}
 		name := body.Name
+		if name == "" && sourceDir != nil {
+			name = filepath.Base(*sourceDir)
+		}
 		if name == "" {
 			base := body.Image[strings.LastIndex(body.Image, "/")+1:]
 			name, _, _ = strings.Cut(base, ":")
 		}
 		name = sanitizeJobName(name)
-		img := body.Image
+		var img *string
+		if body.Image != "" {
+			img = &body.Image
+		}
 		env := body.Env
 		if env == nil {
 			env = map[string]string{}
 		}
 		job := &state.JobRecord{
-			ID: newJobID(name), Name: name, Image: &img,
+			ID: newJobID(name), Name: name, Image: img,
+			SourceDir: sourceDir, GitURL: gitURL,
 			Command: body.Command, Env: env, Systems: body.Systems,
 			Timeout: timeout, State: state.JobQueued, CreatedAt: iso(time.Now()),
 		}
@@ -218,9 +247,28 @@ func (s *Server) executeJob(job *state.JobRecord) {
 		_ = s.St.Save()
 	}
 
-	if err := s.Eng.EnsureImage(ctx, *job.Image); err != nil {
-		fail(err.Error())
-		return
+	// resolve the job image: stock image (pull), or build the source Dockerfile
+	var imageTag string
+	if job.Image != nil {
+		imageTag = *job.Image
+		if err := s.Eng.EnsureImage(ctx, imageTag); err != nil {
+			fail(err.Error())
+			return
+		}
+	} else {
+		suffix := "latest"
+		if i := strings.LastIndex(job.ID, "-"); i >= 0 {
+			suffix = job.ID[i+1:]
+		}
+		imageTag = "slab-job/" + job.Name + ":" + suffix
+		if err := s.Eng.BuildImage(ctx, *job.SourceDir, imageTag); err != nil {
+			fail(err.Error())
+			return
+		}
+	}
+	workspace := ""
+	if job.Image != nil && job.SourceDir != nil {
+		workspace = *job.SourceDir // stock image + source: mount at /workspace
 	}
 
 	s.St.Records.RLock()
@@ -232,7 +280,7 @@ func (s *Server) executeJob(job *state.JobRecord) {
 	}
 	s.St.Records.RUnlock()
 
-	cid, err := s.Eng.RunJob(ctx, job.ID, *job.Image, job.Command, job.Env, networks)
+	cid, err := s.Eng.RunJob(ctx, job.ID, imageTag, job.Command, job.Env, networks, workspace)
 	if err != nil {
 		fail(err.Error())
 		return

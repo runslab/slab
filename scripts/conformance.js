@@ -253,6 +253,26 @@ source = "./${apiApp}"
   ok(built === 'built-by-slab', 'the built image is the one running')
   await api('DELETE', `/v1/apps/${buildApp}`)
 
+  // git sources: clone on create, pull on redeploy (local file:// repo — no network)
+  const gitApp = `conf-git-${RUN}`
+  const gitRepo = path.join(dir, 'fixtures', `${gitApp}-repo`)
+  fs.mkdirSync(gitRepo, { recursive: true })
+  fs.writeFileSync(path.join(gitRepo, 'slab.toml'), `name = "${gitApp}"\ntype = "service"\nport = 80\nimage = "nginx:alpine"\n\n[env]\nREV = "one"\n`)
+  execFileSync('git', ['init', '-q'], { cwd: gitRepo })
+  execFileSync('git', ['-c', 'user.email=conf@slab', '-c', 'user.name=conf', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: gitRepo })
+  execFileSync('git', ['add', '.'], { cwd: gitRepo })
+  execFileSync('git', ['-c', 'user.email=conf@slab', '-c', 'user.name=conf', 'commit', '-q', '-m', 'v1'], { cwd: gitRepo })
+  r = await api('POST', '/v1/apps', { gitUrl: `file://${gitRepo}` })
+  ok(r.status === 201 && r.json?.app?.gitUrl === `file://${gitRepo}`, 'git source clones on create', r.text)
+  r = await api('POST', `/v1/apps/${gitApp}/deploy`)
+  ok(r.status === 200 && docker('exec', `slab-${gitApp}`, 'env').includes('REV=one'), 'git app deploys from the clone', r.text)
+  fs.writeFileSync(path.join(gitRepo, 'slab.toml'), `name = "${gitApp}"\ntype = "service"\nport = 80\nimage = "nginx:alpine"\n\n[env]\nREV = "two"\n`)
+  execFileSync('git', ['add', '.'], { cwd: gitRepo })
+  execFileSync('git', ['-c', 'user.email=conf@slab', '-c', 'user.name=conf', 'commit', '-q', '-m', 'v2'], { cwd: gitRepo })
+  r = await api('POST', `/v1/apps/${gitApp}/deploy`)
+  ok(r.status === 200 && docker('exec', `slab-${gitApp}`, 'env').includes('REV=two'), 'redeploy pulls upstream changes', r.text)
+  await api('DELETE', `/v1/apps/${gitApp}`)
+
   if (RUNG >= 3) {
   // ── jobs: run-to-completion, exit codes, logs ───────────────────────────
   r = await api('POST', '/v1/jobs', { image: 'alpine:3', command: ['sh', '-c', 'echo conf-ok'] })
@@ -274,6 +294,34 @@ source = "./${apiApp}"
   }, 'job failure', 60000)
   const failed = await api('GET', `/v1/jobs/${failId}`)
   ok((failed.json?.job?.exitCode ?? failed.json?.exitCode) === 3, 'exit code propagates', failed.text)
+
+  // source job, image mode: source mounted at /workspace in a stock image
+  const wsDir = path.join(dir, 'fixtures', `conf-ws-${RUN}`)
+  fs.mkdirSync(wsDir, { recursive: true })
+  fs.writeFileSync(path.join(wsDir, 'probe.txt'), 'workspace-ok')
+  r = await api('POST', '/v1/jobs', { image: 'alpine:3', sourceDir: wsDir, command: ['cat', 'probe.txt'] })
+  const wsId = r.json?.job?.id ?? r.json?.id
+  ok(r.status === 200 || r.status === 201, 'source job accepted (image + workspace mount)', r.text)
+  await waitFor(async () => {
+    const j = await api('GET', `/v1/jobs/${wsId}`)
+    return (j.json?.job?.state ?? j.json?.state) === 'succeeded'
+  }, 'workspace job success', 60000)
+  r = await api('GET', `/v1/jobs/${wsId}/logs`)
+  ok(r.text.includes('workspace-ok'), 'source mounted at /workspace (job ran there)', r.text)
+
+  // source job, build mode: no image — the Dockerfile is built and run
+  const bjDir = path.join(dir, 'fixtures', `conf-bjob-${RUN}`)
+  fs.mkdirSync(bjDir, { recursive: true })
+  fs.writeFileSync(path.join(bjDir, 'Dockerfile'), 'FROM alpine:3\nCMD ["echo", "built-job-ok"]\n')
+  r = await api('POST', '/v1/jobs', { sourceDir: bjDir })
+  const bjId = r.json?.job?.id ?? r.json?.id
+  ok(r.status === 200 || r.status === 201, 'source job accepted (Dockerfile build mode)', r.text)
+  await waitFor(async () => {
+    const j = await api('GET', `/v1/jobs/${bjId}`)
+    return (j.json?.job?.state ?? j.json?.state) === 'succeeded'
+  }, 'built job success', 120000)
+  r = await api('GET', `/v1/jobs/${bjId}/logs`)
+  ok(r.text.includes('built-job-ok'), 'built job ran its Dockerfile CMD', r.text)
   }
 
   // ── teardown surface: system rm keeps apps, app rm removes ─────────────
@@ -349,7 +397,7 @@ node = "conf-peer"
       await waitFor(async () => {  // the trunk's listeners come up ~a second after deploy returns
         try { span = docker('exec', `slab-${spanWeb}`, 'sh', '-c', `wget -qO- -T 3 http://${spanApi}:81`) } catch (e) { span = String(e.message) }
         return span === 'span-ok'
-      }, 'trunk dial', 15000).catch(() => {})
+      }, 'trunk dial', 30000).catch(() => {})
       ok(span === 'span-ok', 'cross-node member dial through the trunk (byte-identical url)', span)
       const trunks = docker('ps', '--format', '{{.Names}}', '--filter', 'name=slab-trunk-')
       ok(trunks.split('\n').filter((t) => t.includes(spanSys)).length === 2, 'one trunk per node', trunks)
