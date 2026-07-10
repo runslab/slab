@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && node scripts/check-page.js",
+    "build": "tsc && node scripts/check-page.js && node scripts/export-dashboard.js",
     "dev": "tsx src/daemon.ts",
     "daemon": "node dist/daemon.js",
     "conformance": "node scripts/conformance.js"

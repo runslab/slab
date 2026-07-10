@@ -30,19 +30,19 @@ const (
 // AppRecord mirrors the TS AppRecord (src/types.ts) — field names must stay
 // identical: the JSON is the API contract the conformance harness reads.
 type AppRecord struct {
-	Name        string             `json:"name"`
-	SourceDir   string             `json:"sourceDir"`
-	GitURL      *string            `json:"gitUrl"`
-	Manifest    *manifest.Manifest `json:"manifest"`
-	HostPort    *int               `json:"hostPort"`
-	ContainerID *string            `json:"containerId"`
-	ImageTag    *string            `json:"imageTag"`
-	Version       int      `json:"version"`
-	State         AppState `json:"state"`
-	Error         *string  `json:"error"`
-	Exposed       bool     `json:"exposed"`
-	PublicURL     *string  `json:"publicUrl"`
-	LastRequestAt *string  `json:"lastRequestAt,omitempty"` // ISO — proxy updates, idle reaper reads
+	Name          string             `json:"name"`
+	SourceDir     string             `json:"sourceDir"`
+	GitURL        *string            `json:"gitUrl"`
+	Manifest      *manifest.Manifest `json:"manifest"`
+	HostPort      *int               `json:"hostPort"`
+	ContainerID   *string            `json:"containerId"`
+	ImageTag      *string            `json:"imageTag"`
+	Version       int                `json:"version"`
+	State         AppState           `json:"state"`
+	Error         *string            `json:"error"`
+	Exposed       bool               `json:"exposed"`
+	PublicURL     *string            `json:"publicUrl"`
+	LastRequestAt *string            `json:"lastRequestAt,omitempty"` // ISO — proxy updates, idle reaper reads
 }
 
 // PeerRecord mirrors the TS PeerRecord.

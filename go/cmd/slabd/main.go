@@ -22,6 +22,7 @@ import (
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/proxy"
 	"github.com/runslab/slab/go/internal/state"
+	"github.com/runslab/slab/go/internal/tunnel"
 )
 
 func envPort(name string, fallback int) int {
@@ -59,7 +60,7 @@ func main() {
 	if advertise == "" {
 		advertise = "127.0.0.1"
 	}
-	srv := &api.Server{St: st, Eng: eng, NodeName: node.Name, Token: node.Token, ProxyPort: proxyPort, Advertise: advertise}
+	srv := &api.Server{St: st, Eng: eng, NodeName: node.Name, Token: node.Token, ProxyPort: proxyPort, Advertise: advertise, Tunnels: tunnel.New()}
 
 	go idleReaper(st, eng)
 

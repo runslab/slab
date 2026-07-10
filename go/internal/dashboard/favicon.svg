@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="slab">
+  <polygon points="16,4 30,11 16,18 2,11" fill="#d6d3cb"/>
+  <polygon points="2,11 16,18 16,28 2,21" fill="#98958d"/>
+  <polygon points="30,11 16,18 16,28 30,21" fill="#68655e"/>
+  <circle cx="24.5" cy="18.5" r="3.4" fill="#ffb454" opacity="0.35"/>
+  <circle cx="24.5" cy="18.5" r="1.9" fill="#ffb454"/>
+</svg>

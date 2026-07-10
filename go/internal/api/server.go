@@ -12,10 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/runslab/slab/go/internal/dashboard"
 	"github.com/runslab/slab/go/internal/engine"
 	"github.com/runslab/slab/go/internal/gitsrc"
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/state"
+	"github.com/runslab/slab/go/internal/tunnel"
 )
 
 type Server struct {
@@ -25,6 +27,7 @@ type Server struct {
 	Token     string
 	ProxyPort int
 	Advertise string // what other nodes dial for trunks (SLAB_ADVERTISE)
+	Tunnels   *tunnel.Manager
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -297,6 +300,38 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, 200, map[string]any{"keys": keys})
 	})
+
+	mux.HandleFunc("POST /v1/apps/{name}/expose", func(w http.ResponseWriter, r *http.Request) {
+		rec := s.St.Apps[r.PathValue("name")]
+		if rec == nil {
+			errJSON(w, 404, "unknown app")
+			return
+		}
+		u, err := s.Tunnels.Open(rec.Name, s.ProxyPort)
+		if err != nil {
+			errJSON(w, 500, err.Error())
+			return
+		}
+		rec.PublicURL = &u
+		rec.Exposed = true
+		_ = s.St.Save()
+		writeJSON(w, 200, map[string]any{"app": rec})
+	})
+
+	mux.HandleFunc("POST /v1/apps/{name}/hide", func(w http.ResponseWriter, r *http.Request) {
+		rec := s.St.Apps[r.PathValue("name")]
+		if rec == nil {
+			errJSON(w, 404, "unknown app")
+			return
+		}
+		s.Tunnels.Close(rec.Name)
+		rec.Exposed = false
+		rec.PublicURL = nil
+		_ = s.St.Save()
+		writeJSON(w, 200, map[string]any{"app": rec})
+	})
+
+	dashboard.Routes(mux, s.ProxyPort)
 
 	s.jobRoutes(mux)
 	s.spanningRoutes(mux)

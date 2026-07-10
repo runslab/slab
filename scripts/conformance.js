@@ -94,6 +94,12 @@ async function main() {
   await waitFor(async () => (await api('GET', '/v1/apps')).status === 200, 'daemon boot', 20000)
   ok(true, 'daemon boots and serves /v1/apps')
 
+  const dash = await fetch(`${API}/`)
+  const dashHtml = await dash.text()
+  ok(dash.status === 200 && dashHtml.toLowerCase().includes('hyperscaler') && dashHtml.includes(String(PROXY)),
+    'dashboard served at / with the right proxy port')
+  ok((await fetch(`${API}/favicon.svg`)).status === 200, 'favicon served')
+
   // ── app lifecycle: create → deploy → route → logs → stop/start ─────────
   const web = `conf-web-${RUN}`
   const srcWeb = fixtureApp(web, 'volumes = ["data:/data"]\n\n[env]\nGREETING = "conformance"')

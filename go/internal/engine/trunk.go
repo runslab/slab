@@ -26,11 +26,11 @@ const trunkImage = "node:22-alpine"
 
 // TrunkConfig mirrors the TS TrunkConfig — it crosses nodes as JSON.
 type TrunkConfig struct {
-	Token       string                    `json:"token"`
-	IngressPort int                       `json:"ingressPort"`
-	Local       map[string]TrunkLocal     `json:"local"`
-	Remote      map[string]TrunkRemote    `json:"remote"`
-	Peers       map[string]TrunkPeerAddr  `json:"peers"`
+	Token       string                   `json:"token"`
+	IngressPort int                      `json:"ingressPort"`
+	Local       map[string]TrunkLocal    `json:"local"`
+	Remote      map[string]TrunkRemote   `json:"remote"`
+	Peers       map[string]TrunkPeerAddr `json:"peers"`
 }
 
 type TrunkLocal struct {
