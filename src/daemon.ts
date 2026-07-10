@@ -552,8 +552,13 @@ async function main(): Promise<void> {
   api.delete('/v1/apps/:name', wrap(async (req, res) => {
     const record = getAppOr404(nameParam(req))
     closeTunnel(record.name)
-    if (isProviderTarget(record.target)) await getProvider(record.target!).remove(record)
-    else await engine.removeContainer(record)
+    if (isProviderTarget(record.target)) {
+      // never deployed -> no remote resources; don't require a working
+      // provider (rm must not fail on an unconfigured aws CLI)
+      if (record.containerId) await getProvider(record.target!).remove(record)
+    } else {
+      await engine.removeContainer(record)
+    }
     deleteSecrets(record.name)
     delete state.apps[record.name]
     saveState(state)
