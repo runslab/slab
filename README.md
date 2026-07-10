@@ -69,8 +69,9 @@ postgres, secrets, private members); see [docs/manifest.md](docs/manifest.md).
 ## The elements
 
 Three nouns, three verbs, one verb per noun. Apps and jobs are the
-vertices, wires are the edges: a system is a graph. A node is the set of
-systems it carries.
+vertices, wires are the edges: a system is a graph. A node is a daemon,
+and it carries a set of systems; nodes and trunks make the fleet a graph
+one scale up.
 
 | verb | what it runs | example |
 |---|---|---|

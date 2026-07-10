@@ -560,8 +560,9 @@
     </div>
     <div class="cabmark">slab<span class="chinfo">one manifest · toml · git-trackable</span></div>
   </div>
-  <p class="pour-note">apps and jobs are the vertices, wires are the edges: a system is a graph.
-  a node is the set of systems it carries.</p>
+  <p class="pour-note">apps and jobs are the vertices; wires are the edges. a system is a graph.
+  a node is a daemon, and it carries a set of systems. that's the whole surface.
+  nothing to memorize, nothing to hold wrong, for you or for an agent.</p>
 </section>
 
 <section>
@@ -572,12 +573,89 @@
     <div class="cast"><h3>Two-way</h3><p>Bending in all directions: members that call each other.</p><span class="stamp">mutual</span></div>
     <div class="cast waffle"><h3>Waffle</h3><p>Spans machines. The trunks are the utilities concealed in the voids.</p><span class="stamp">multi-node</span></div>
   </div>
+  <div class="sheetlet" role="img" aria-label="drafting sheet S-2, the ontology: a system drawn as a graph of app and job vertices joined by wire edges, then three nodes (laptop, closet, vps) carrying system tiles, one system spanning two nodes over a trunk, the whole fleet a graph one scale up">
+      <svg viewBox="0 0 640 430" fill="none">
+        <defs>
+          <pattern id="hatch2" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#b9b6ad" stroke-width="1.4"/>
+          </pattern>
+          <marker id="arrW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#e4570f"/>
+          </marker>
+        </defs>
+        <text x="24" y="34" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">SYSTEM = ({APPS, JOBS}, WIRES)</text>
+        <text x="616" y="34" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e" text-anchor="end">STAMP: ONE-WAY (COMPUTED, ACYCLIC)</text>
+        <g font-family="ui-monospace, Menlo, monospace" font-size="11">
+          <circle cx="100" cy="92" r="15" fill="#f5f4f0" stroke="#26251f" stroke-width="1.5"/>
+          <text x="100" y="122" fill="#26251f" font-weight="600" text-anchor="middle">web</text>
+          <circle cx="280" cy="92" r="15" fill="#f5f4f0" stroke="#26251f" stroke-width="1.5"/>
+          <text x="280" y="122" fill="#26251f" font-weight="600" text-anchor="middle">api</text>
+          <circle cx="460" cy="92" r="15" fill="url(#hatch2)" stroke="#26251f" stroke-width="1.5"/>
+          <text x="460" y="122" fill="#26251f" font-weight="600" text-anchor="middle">db · priv</text>
+        </g>
+        <g stroke="#e4570f" stroke-width="2">
+          <line x1="117" y1="92" x2="262" y2="92" marker-end="url(#arrW)"/>
+          <line x1="297" y1="92" x2="442" y2="92" marker-end="url(#arrW)"/>
+        </g>
+        <text x="184" y="82" font-family="'American Typewriter', monospace" font-size="9.5" fill="#e4570f" text-anchor="middle">WIRE</text>
+        <circle cx="280" cy="168" r="13" fill="none" stroke="#26251f" stroke-width="1.5" stroke-dasharray="4 4" class="led"/>
+        <line x1="280" y1="154" x2="280" y2="110" stroke="#e4570f" stroke-width="1.6" stroke-dasharray="3 4" marker-end="url(#arrW)"/>
+        <g stroke="#3d6b8e" stroke-width="1.2" fill="none"><path d="M 296 168 L 336 168"/></g>
+        <text x="342" y="164" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">JOB, TRANSIENT — ARRIVES, PROBES, LEAVES.</text>
+        <text x="342" y="178" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">THE GRAPH BREATHES.</text>
+        <g stroke="#3d6b8e" stroke-width="1.2" fill="none"><path d="M 472 78 L 490 56 L 512 56"/></g>
+        <text x="516" y="52" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">NO HOST</text>
+        <text x="516" y="66" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">PORT. EVER.</text>
+        <g font-family="ui-monospace, Menlo, monospace" font-size="11">
+          <rect x="40" y="228" width="180" height="92" rx="5" fill="none" stroke="#26251f" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <text x="52" y="248" fill="#26251f" font-weight="600">laptop</text>
+          <rect x="52" y="258" width="72" height="22" rx="2" fill="#f5f4f0" stroke="#26251f" stroke-width="1.2"/>
+          <text x="58" y="273" fill="#26251f" font-size="10">arcade</text>
+          <rect x="52" y="288" width="100" height="22" rx="2" fill="#f5f4f0" stroke="#e4570f" stroke-width="1.6"/>
+          <text x="58" y="303" fill="#26251f" font-size="10">waffle · web</text>
+          <rect x="260" y="228" width="180" height="92" rx="5" fill="none" stroke="#26251f" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <text x="272" y="248" fill="#26251f" font-weight="600">closet</text>
+          <rect x="272" y="258" width="100" height="22" rx="2" fill="#f5f4f0" stroke="#26251f" stroke-width="1.2"/>
+          <text x="278" y="273" fill="#26251f" font-size="10">pg-cluster</text>
+          <rect x="272" y="288" width="100" height="22" rx="2" fill="#f5f4f0" stroke="#e4570f" stroke-width="1.6"/>
+          <text x="278" y="303" fill="#26251f" font-size="10">waffle · api</text>
+          <rect x="480" y="228" width="120" height="92" rx="5" fill="none" stroke="#26251f" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <text x="492" y="248" fill="#26251f" font-weight="600">vps</text>
+          <rect x="492" y="258" width="62" height="22" rx="2" fill="#f5f4f0" stroke="#26251f" stroke-width="1.2"/>
+          <text x="498" y="273" fill="#26251f" font-size="10">blog</text>
+        </g>
+        <g stroke="#e4570f" stroke-width="2.4">
+          <line x1="152" y1="295" x2="272" y2="295"/>
+          <line x1="152" y1="300" x2="272" y2="300"/>
+        </g>
+        <text x="212" y="288" font-family="'American Typewriter', monospace" font-size="9.5" fill="#e4570f" text-anchor="middle">TRUNK</text>
+        <g stroke="#3d6b8e" stroke-width="1.4">
+          <line x1="130" y1="320" x2="130" y2="342"/>
+          <line x1="350" y1="320" x2="350" y2="342"/>
+          <line x1="540" y1="320" x2="540" y2="342"/>
+          <line x1="130" y1="342" x2="540" y2="342"/>
+        </g>
+        <g stroke="#3d6b8e" stroke-width="1.2" fill="none"><path d="M 376 297 L 424 208 L 448 208"/></g>
+        <text x="452" y="204" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">ONE SYSTEM IN TWO NODES —</text>
+        <text x="452" y="218" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">THE WAFFLE, TYP.</text>
+        <text x="40" y="370" font-family="'American Typewriter', monospace" font-size="10.5" fill="#3d6b8e">NODE = A DAEMON CARRYING SYSTEMS · NODES + TRUNKS = THE FLEET — A GRAPH, ONE SCALE UP</text>
+        <text x="320" y="400" font-family="'American Typewriter', monospace" font-size="11" fill="#6e6b62" text-anchor="middle" letter-spacing="2">IT'S GRAPHS ALL THE WAY UP</text>
+        <g transform="translate(48, 414)">
+          <circle cx="12" cy="0" r="13" fill="none" stroke="#26251f" stroke-width="1.5"/>
+          <line x1="-1" y1="0" x2="25" y2="0" stroke="#26251f" stroke-width="1.5"/>
+          <text x="12" y="-3" font-family="'American Typewriter', monospace" font-size="10" fill="#26251f" text-anchor="middle">B</text>
+          <text x="12" y="9" font-family="'American Typewriter', monospace" font-size="7" fill="#26251f" text-anchor="middle">S-2</text>
+        </g>
+      </svg>
+      <div class="caption"><span><b>SHEET S-2</b> · THE ONTOLOGY</span><span>SCALE: LOCALHOST</span></div>
+  </div>
   <p class="pour-note">the dashboard stamps every system's nameplate with its type, computed
   from the wire graph, not declared. <code>examples/</code> ships one of each.
-  <span class="ftnote">in graph terms: system = ({apps, jobs}, wires), a graph · node = the set
-  of systems it carries · fleet = the set of nodes. flat = no edges · one-way = acyclic ·
-  two-way = cyclic · waffle = a system in more than one node's set. any graph you can
-  draw fits in a page of toml.</span></p>
+  <span class="ftnote">the types are computed from the edges: no wires is flat, acyclic is
+  one-way, cyclic is two-way, and a system carried by more than one node is a waffle.
+  jobs arrive and leave, so the graph breathes. what the daemon can compute, it can
+  guarantee: the type stamp is a computation, a patched wire redeploys exactly its
+  caller, and an agent traverses the topology instead of guessing at it.</span></p>
 </section>
 
 <section>

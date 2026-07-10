@@ -93,13 +93,15 @@ node = "some-peer"        # optional: run this member on a peer (the waffle move
   three nouns (apps/jobs/systems), three verbs (deploy/run/up), one verb
   per noun. Jason's formalization (canonical): **system = ({apps, jobs},
   wires)** — a graph whose vertices are things that run (jobs are transient
-  vertices; they attach to system networks); **node = the set of systems it
-  carries**; **fleet = the set of nodes**. The ontology builds upward with
-  no extra primitives, and the dashboard mirrors it: rack unit → cabinet →
-  band → fleet view. flat/one-way/two-way = edge-structure properties;
-  waffle = a system in more than one node's set. Graph theory stays in
-  footnote register. Vocabulary: apps/jobs are vertices, machines are
-  nodes — never mix.
+  vertices: they attach, probe, leave — "the graph breathes"); **node = a
+  daemon carrying a set of systems**; **nodes + trunks = the fleet, a graph
+  one scale up** ("it's graphs all the way up" — this resolves the
+  node/vertex terminology rub: machines are correctly nodes because the
+  fleet is itself a graph). The dashboard mirrors the tower: rack unit →
+  cabinet → band → fleet view. flat/one-way/two-way = edge properties;
+  waffle = a system carried by more than one node. Motivation line: "what
+  the daemon can compute, it can guarantee." Graph theory lives in the
+  site's SHEET S-2 drafting figure + footnote register, never headlines.
 
 ### Jobs
 `slab run <src> -- cmd` runs a container to completion (`slab jobs`,
