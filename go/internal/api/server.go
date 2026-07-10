@@ -18,8 +18,11 @@ import (
 )
 
 type Server struct {
-	St  *state.State
-	Eng *engine.Engine
+	St        *state.State
+	Eng       *engine.Engine
+	NodeName  string
+	Token     string
+	ProxyPort int
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -90,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 			errJSON(w, 500, err.Error())
 			return
 		}
+		state.DeleteSecrets(name)
 		delete(s.St.Apps, name)
 		_ = s.St.Save()
 		w.WriteHeader(204)
@@ -252,7 +256,45 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, map[string]any{"detached": sys.Name})
 	})
 
+	mux.HandleFunc("PUT /v1/apps/{name}/secrets", func(w http.ResponseWriter, r *http.Request) {
+		s.St.Records.RLock()
+		rec := s.St.Apps[r.PathValue("name")]
+		s.St.Records.RUnlock()
+		if rec == nil {
+			errJSON(w, 404, "unknown app")
+			return
+		}
+		var body struct {
+			Values map[string]string `json:"values"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body.Values == nil {
+			errJSON(w, 400, "body must be { values: Record<string, string> }")
+			return
+		}
+		if err := state.SetSecrets(rec.Name, body.Values); err != nil {
+			errJSON(w, 500, err.Error())
+			return
+		}
+		w.WriteHeader(204)
+	})
+
+	mux.HandleFunc("GET /v1/apps/{name}/secrets", func(w http.ResponseWriter, r *http.Request) {
+		s.St.Records.RLock()
+		rec := s.St.Apps[r.PathValue("name")]
+		s.St.Records.RUnlock()
+		if rec == nil {
+			errJSON(w, 404, "unknown app")
+			return
+		}
+		keys := make([]string, 0)
+		for k := range state.GetSecrets(rec.Name) {
+			keys = append(keys, k)
+		}
+		writeJSON(w, 200, map[string]any{"keys": keys})
+	})
+
 	s.jobRoutes(mux)
+	s.clusterRoutes(mux)
 
 	return mux
 }
@@ -314,13 +356,23 @@ func (s *Server) deployApp(ctx context.Context, rec *state.AppRecord) error {
 		networks = append(networks, systemNet(sys))
 	}
 
-	// merge order: PORT < manifest.env < wires (secrets arrive a later rung)
+	// merge order: PORT < manifest.env < wires < secrets < DATABASE_URL
 	env := map[string]string{"PORT": fmt.Sprint(m.Port)}
 	for k, v := range m.Env {
 		env[k] = v
 	}
 	for k, v := range wireEnv {
 		env[k] = v
+	}
+	for k, v := range state.GetSecrets(rec.Name) {
+		env[k] = v
+	}
+	if m.Postgres {
+		dbURL, err := s.Eng.EnsurePostgres(ctx, rec.Name)
+		if err != nil {
+			return err
+		}
+		env["DATABASE_URL"] = dbURL
 	}
 
 	id, err := s.Eng.RunContainer(ctx, rec, imageTag, env, engine.RunOpts{

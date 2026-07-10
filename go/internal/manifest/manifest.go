@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -156,6 +158,26 @@ func infer(sourceDir string) (*Manifest, error) {
 		IdleTimeout: "5m",
 		Env:         map[string]string{"PORT": fmt.Sprint(port)},
 	}, nil
+}
+
+var durationRe = regexp.MustCompile(`^(\d+)(s|m|h)$`)
+
+// ParseDuration mirrors the TS parseDuration: "5m" | "30s" | "1h", with a
+// 5-minute fallback for anything malformed.
+func ParseDuration(s string) time.Duration {
+	m := durationRe.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return 5 * time.Minute
+	}
+	n, _ := strconv.Atoi(m[1])
+	switch m[2] {
+	case "s":
+		return time.Duration(n) * time.Second
+	case "h":
+		return time.Duration(n) * time.Hour
+	default:
+		return time.Duration(n) * time.Minute
+	}
 }
 
 var nonName = regexp.MustCompile(`[^a-z0-9-]+`)

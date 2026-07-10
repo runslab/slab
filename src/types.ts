@@ -149,7 +149,7 @@ export interface JobRecord {
 // open|close|token`, env-overridable) — see NodeConfig in state.ts.
 export const DAEMON_PORT = Number(process.env.SLAB_PORT ?? 7766)
 export const PROXY_PORT = Number(process.env.SLAB_PROXY_PORT ?? 8080)
-export const HOST_PORT_BASE = 20000
+export const HOST_PORT_BASE = Number(process.env.SLAB_PORT_BASE ?? 20000)
 
 // ── Engine interface (implemented in engine.ts with dockerode) ───────────────
 export interface Engine {

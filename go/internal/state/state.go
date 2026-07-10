@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/runslab/slab/go/internal/manifest"
@@ -36,11 +37,19 @@ type AppRecord struct {
 	HostPort    *int               `json:"hostPort"`
 	ContainerID *string            `json:"containerId"`
 	ImageTag    *string            `json:"imageTag"`
-	Version     int                `json:"version"`
-	State       AppState           `json:"state"`
-	Error       *string            `json:"error"`
-	Exposed     bool               `json:"exposed"`
-	PublicURL   *string            `json:"publicUrl"`
+	Version       int      `json:"version"`
+	State         AppState `json:"state"`
+	Error         *string  `json:"error"`
+	Exposed       bool     `json:"exposed"`
+	PublicURL     *string  `json:"publicUrl"`
+	LastRequestAt *string  `json:"lastRequestAt,omitempty"` // ISO — proxy updates, idle reaper reads
+}
+
+// PeerRecord mirrors the TS PeerRecord.
+type PeerRecord struct {
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
 // SystemRecord mirrors the TS SystemRecord (field names are the contract).
@@ -86,6 +95,7 @@ type State struct {
 	Apps    map[string]*AppRecord    `json:"apps"`
 	Systems map[string]*SystemRecord `json:"systems"`
 	Jobs    map[string]*JobRecord    `json:"jobs"`
+	Peers   map[string]*PeerRecord   `json:"peers"`
 
 	// Records guards the maps — node is single-threaded, Go is not; handlers
 	// take Lock, the proxy takes RLock. Save() has its own file mutex.
@@ -127,7 +137,7 @@ func Load() (*State, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	s := &State{Apps: map[string]*AppRecord{}, Systems: map[string]*SystemRecord{}, Jobs: map[string]*JobRecord{}, file: filepath.Join(dir, "state.json")}
+	s := &State{Apps: map[string]*AppRecord{}, Systems: map[string]*SystemRecord{}, Jobs: map[string]*JobRecord{}, Peers: map[string]*PeerRecord{}, file: filepath.Join(dir, "state.json")}
 	data, err := os.ReadFile(s.file)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -147,6 +157,9 @@ func Load() (*State, error) {
 	if s.Jobs == nil {
 		s.Jobs = map[string]*JobRecord{}
 	}
+	if s.Peers == nil {
+		s.Peers = map[string]*PeerRecord{}
+	}
 	return s, nil
 }
 
@@ -165,20 +178,58 @@ func (s *State) Save() error {
 	return os.Rename(tmp, s.file)
 }
 
-// AllocateHostPort hands out the first free port >= 20000 among records.
+// AllocateHostPort hands out the first free port >= the base (default
+// 20000; SLAB_PORT_BASE overrides — multiple daemons on one host must not
+// carve up the same range) among records.
 func (s *State) AllocateHostPort() int {
+	base := 20000
+	if v := os.Getenv("SLAB_PORT_BASE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			base = n
+		}
+	}
 	used := map[int]bool{}
 	for _, a := range s.Apps {
 		if a.HostPort != nil {
 			used[*a.HostPort] = true
 		}
 	}
-	p := 20000
+	p := base
 	for used[p] {
 		p++
 	}
 	return p
 }
+
+// Secrets live one JSON file per app under SLAB_DIR/secrets, chmod 600 —
+// plaintext-on-disk v0 honesty, same as the TS daemon.
+func secretsFile(app string) string { return filepath.Join(Dir(), "secrets", app+".json") }
+
+func GetSecrets(app string) map[string]string {
+	data, err := os.ReadFile(secretsFile(app))
+	if err != nil {
+		return map[string]string{}
+	}
+	var out map[string]string
+	if json.Unmarshal(data, &out) != nil || out == nil {
+		return map[string]string{}
+	}
+	return out
+}
+
+func SetSecrets(app string, values map[string]string) error {
+	merged := GetSecrets(app)
+	for k, v := range values {
+		merged[k] = v
+	}
+	if err := os.MkdirAll(filepath.Join(Dir(), "secrets"), 0o700); err != nil {
+		return err
+	}
+	data, _ := json.MarshalIndent(merged, "", "  ")
+	return os.WriteFile(secretsFile(app), data, 0o600)
+}
+
+func DeleteSecrets(app string) { _ = os.Remove(secretsFile(app)) }
 
 // EnsureNode loads or creates node.json (name + auth token).
 func EnsureNode() (*NodeConfig, error) {

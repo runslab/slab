@@ -327,7 +327,121 @@ func (e *Engine) ContainerLogsByID(ctx context.Context, containerID string, tail
 	return demux(raw), nil
 }
 
-// WaitReady polls the container until it reports running (or errors out).
+// ── shared postgres (postgres = true) ──────────────────────────────────────
+// SLAB_PG_PORT namespaces per daemon, mirroring the TS engine.
+
+func pgPort() int {
+	if v := os.Getenv("SLAB_PG_PORT"); v != "" {
+		var p int
+		if _, err := fmt.Sscanf(v, "%d", &p); err == nil {
+			return p
+		}
+	}
+	return 20432
+}
+
+func pgContainer() string {
+	if os.Getenv("SLAB_PG_PORT") != "" {
+		return fmt.Sprintf("slab-postgres-%d", pgPort())
+	}
+	return "slab-postgres"
+}
+
+func pgVolume() string {
+	if os.Getenv("SLAB_PG_PORT") != "" {
+		return fmt.Sprintf("slab-pgdata-%d", pgPort())
+	}
+	return "slab-pgdata"
+}
+
+// EnsurePostgres provisions the shared postgres container and a per-app
+// database; returns the DATABASE_URL to inject.
+func (e *Engine) EnsurePostgres(ctx context.Context, appName string) (string, error) {
+	name := pgContainer()
+	info, err := e.cli.ContainerInspect(ctx, name)
+	if err != nil { // no container yet — create it
+		if err := e.EnsureImage(ctx, "postgres:16-alpine"); err != nil {
+			return "", err
+		}
+		portKey := nat.Port("5432/tcp")
+		created, err := e.cli.ContainerCreate(ctx,
+			&container.Config{
+				Image:        "postgres:16-alpine",
+				Labels:       map[string]string{"slab.system": "postgres"},
+				Env:          []string{"POSTGRES_PASSWORD=slab", "POSTGRES_USER=slab"},
+				ExposedPorts: nat.PortSet{portKey: struct{}{}},
+			},
+			&container.HostConfig{
+				Binds:         []string{pgVolume() + ":/var/lib/postgresql/data"},
+				PortBindings:  nat.PortMap{portKey: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: fmt.Sprint(pgPort())}}},
+				RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+			}, nil, nil, name)
+		if err != nil {
+			return "", fmt.Errorf("failed to create %s: %w", name, err)
+		}
+		if err := e.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+			return "", fmt.Errorf("failed to start %s: %w", name, err)
+		}
+	} else if info.State == nil || !info.State.Running {
+		if err := e.cli.ContainerStart(ctx, name, container.StartOptions{}); err != nil {
+			return "", fmt.Errorf("failed to start %s: %w", name, err)
+		}
+	}
+
+	// wait for readiness (pg_isready), up to 30s
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		code, _, _ := e.execIn(ctx, name, []string{"pg_isready", "-U", "slab"})
+		if code == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("postgres did not become ready within 30s")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	dbName := "slab_" + strings.ReplaceAll(appName, "-", "_")
+	code, out, err := e.execIn(ctx, name, []string{"psql", "-U", "slab", "-tAc",
+		fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname='%s'", dbName)})
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(out) != "1" {
+		code, out, err = e.execIn(ctx, name, []string{"psql", "-U", "slab", "-c", "CREATE DATABASE " + dbName})
+		if err != nil || (code != 0 && !strings.Contains(strings.ToLower(out), "already exists")) {
+			return "", fmt.Errorf("failed to create database %s: %s", dbName, strings.TrimSpace(out))
+		}
+	}
+	return fmt.Sprintf("postgresql://slab:slab@host.docker.internal:%d/%s", pgPort(), dbName), nil
+}
+
+// execIn runs a command inside a container and returns (exitCode, output).
+func (e *Engine) execIn(ctx context.Context, containerName string, cmd []string) (int, string, error) {
+	exec, err := e.cli.ContainerExecCreate(ctx, containerName, container.ExecOptions{
+		Cmd: cmd, AttachStdout: true, AttachStderr: true,
+	})
+	if err != nil {
+		return -1, "", err
+	}
+	att, err := e.cli.ContainerExecAttach(ctx, exec.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return -1, "", err
+	}
+	defer att.Close()
+	raw, _ := io.ReadAll(att.Reader)
+	insp, err := e.cli.ContainerExecInspect(ctx, exec.ID)
+	if err != nil {
+		return -1, "", err
+	}
+	return insp.ExitCode, demux(raw), nil
+}
+
+// IsRunning reports whether the app's container is currently running.
+func (e *Engine) IsRunning(ctx context.Context, app string) bool {
+	info, err := e.cli.ContainerInspect(ctx, containerName(app))
+	return err == nil && info.State != nil && info.State.Running
+}
 func (e *Engine) WaitReady(ctx context.Context, app string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

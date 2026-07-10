@@ -7,10 +7,13 @@ import { TRUNK_INGRESS_PORT } from './trunk'
 
 const TRUNK_IMAGE = 'node:22-alpine'
 
-const PG_CONTAINER_NAME = 'slab-postgres'
+// SLAB_PG_PORT namespaces the shared postgres per daemon — two daemons on
+// one docker host (trunk-demo local pattern, conformance runs) would
+// otherwise fight over one container name, port, and volume.
+const PG_PORT = Number(process.env.SLAB_PG_PORT ?? 20432)
+const PG_CONTAINER_NAME = process.env.SLAB_PG_PORT ? `slab-postgres-${PG_PORT}` : 'slab-postgres'
 const PG_IMAGE = 'postgres:16-alpine'
-const PG_VOLUME = 'slab-pgdata'
-const PG_PORT = 20432
+const PG_VOLUME = process.env.SLAB_PG_PORT ? `slab-pgdata-${PG_PORT}` : 'slab-pgdata'
 const PG_USER = 'slab'
 const PG_PASSWORD = 'slab'
 const PG_READY_TIMEOUT_MS = 30_000
@@ -574,7 +577,10 @@ export function createEngine(): Engine {
   }
 
   async function ensurePostgresContainer(): Promise<void> {
-    const info = await findContainerByLabel('slab.system=postgres')
+    // look up by NAME, not label — with SLAB_PG_PORT namespacing, another
+    // daemon's slab-postgres carries the same label but is not ours
+    const candidates = await docker.listContainers({ all: true, filters: { name: [PG_CONTAINER_NAME] } })
+    const info = candidates.find((c) => c.Names.includes(`/${PG_CONTAINER_NAME}`)) ?? null
     if (!info) {
       if (!(await imageExists(PG_IMAGE))) await pullImage(PG_IMAGE)
       let container: Docker.Container

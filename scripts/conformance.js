@@ -79,7 +79,12 @@ async function main() {
   // ── boot an ephemeral daemon ────────────────────────────────────────────
   const [cmd, ...args] = DAEMON_CMD.split(' ')
   daemon = spawn(cmd, args, {
-    env: { ...process.env, SLAB_DIR: dir, SLAB_PORT: String(PORT), SLAB_PROXY_PORT: String(PROXY) },
+    env: {
+      ...process.env, SLAB_DIR: dir, SLAB_PORT: String(PORT), SLAB_PROXY_PORT: String(PROXY),
+      SLAB_PG_PORT: String(PORT + 700),   // namespaced shared-postgres (no collision with a live rack)
+      SLAB_PORT_BASE: String(PORT + 3000), // own host-port range (ditto)
+      SLAB_IDLE_REAP_MS: '2000',          // fast reaper so the sleep/wake spec is testable
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const daemonLog = []
@@ -99,7 +104,7 @@ async function main() {
   r = await api('POST', `/v1/apps/${web}/deploy`)
   ok(r.status === 200 && r.json?.app?.state === 'running', 'deploy → running', r.text)
   const hostPort = r.json?.app?.hostPort
-  ok(Number.isInteger(hostPort) && hostPort >= 20000, 'hostPort allocated for public app')
+  ok(Number.isInteger(hostPort) && hostPort >= PORT + 3000, 'hostPort allocated for public app')
 
   r = await api('GET', '/v1/apps')
   ok(Array.isArray(r.json?.apps ?? r.json) || r.status === 200, 'GET /v1/apps lists')
@@ -138,6 +143,54 @@ async function main() {
   ok(r.status === 200 && (r.json?.app?.state === 'stopped'), 'stop → stopped', r.text)
   r = await api('POST', `/v1/apps/${web}/start`)
   ok(r.status === 200 && (r.json?.app?.state === 'running'), 'start → running', r.text)
+
+  // ── secrets: set → redeploy injects → names-only reads ─────────────────
+  r = await api('PUT', `/v1/apps/${web}/secrets`, { values: { CONF_SECRET: 'hush' } })
+  ok(r.status === 204, 'PUT secrets accepts values', r.text)
+  await api('POST', `/v1/apps/${web}/deploy`)
+  ok(docker('exec', `slab-${web}`, 'env').includes('CONF_SECRET=hush'), 'secret injected at deploy')
+  r = await api('GET', `/v1/apps/${web}/secrets`)
+  ok(r.status === 200 && r.json?.keys?.includes('CONF_SECRET') && !r.text.includes('hush'),
+    'GET secrets returns names only, never values', r.text)
+
+  // ── postgres = true → DATABASE_URL appears, db per app ──────────────────
+  const pgApp = `conf-pg-${RUN}`
+  fixtureApp(pgApp, 'postgres = true')
+  await api('POST', '/v1/apps', { sourceDir: path.join(dir, 'fixtures', pgApp) })
+  r = await api('POST', `/v1/apps/${pgApp}/deploy`)
+  ok(r.status === 200 && r.json?.app?.state === 'running', 'postgres app deploys', r.text)
+  const pgEnv = docker('exec', `slab-${pgApp}`, 'env')
+  const dbUrl = (pgEnv.match(/DATABASE_URL=(\S+)/) || [])[1] || ''
+  ok(dbUrl.includes(`slab_${pgApp.replace(/-/g, '_')}`), 'DATABASE_URL injected with per-app database', dbUrl)
+  await api('DELETE', `/v1/apps/${pgApp}`)
+
+  // ── functions: idle → sleeping, next request wakes ──────────────────────
+  const fn = `conf-fn-${RUN}`
+  const fnDir = path.join(dir, 'fixtures', fn)
+  fs.mkdirSync(fnDir, { recursive: true })
+  fs.writeFileSync(path.join(fnDir, 'slab.toml'),
+    `name = "${fn}"\ntype = "function"\nport = 80\nimage = "nginx:alpine"\nidle_timeout = "3s"\n`)
+  await api('POST', '/v1/apps', { sourceDir: fnDir })
+  r = await api('POST', `/v1/apps/${fn}/deploy`)
+  ok(r.status === 200, 'function deploys', r.text)
+  await new Promise((res) => setTimeout(res, 500))
+  await new Promise((resolve) => {  // touch it so lastRequestAt exists, then go idle
+    const rq = http.request({ host: '127.0.0.1', port: PROXY, path: '/', headers: { Host: `${fn}.localhost` } },
+      (res2) => { res2.resume(); resolve() })
+    rq.on('error', () => resolve()); rq.end()
+  })
+  await waitFor(async () => {
+    const j = await api('GET', `/v1/apps/${fn}`)
+    return j.json?.app?.state === 'sleeping'
+  }, 'function sleeps after idle_timeout', 30000)
+  ok(true, 'idle function → sleeping')
+  const woke = await new Promise((resolve) => {
+    const rq = http.request({ host: '127.0.0.1', port: PROXY, path: '/', headers: { Host: `${fn}.localhost` } },
+      (res2) => { res2.resume(); resolve(res2.statusCode) })
+    rq.on('error', () => resolve(0)); rq.end()
+  })
+  ok(woke === 200, 'sleeping function wakes on request', `status ${woke}`)
+  await api('DELETE', `/v1/apps/${fn}`)
 
   if (RUNG < 2) {
     r = await api('DELETE', `/v1/apps/${web}`)
@@ -231,6 +284,43 @@ source = "./${apiApp}"
   }
   ok(docker('volume', 'ls', '--format', '{{.Name}}').includes(`slab-${web}-data`), 'volume KEPT after rm (data-safe default)')
   docker('volume', 'rm', `slab-${web}-data`)
+
+  // ── fleet: a second daemon, peered by token, both bands visible ────────
+  if (RUNG >= 4) {
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-conf2-'))
+    const daemon2 = spawn(cmd, args, {
+      env: {
+        ...process.env, SLAB_DIR: dir2, SLAB_PORT: String(PORT + 1), SLAB_PROXY_PORT: String(PROXY + 1),
+        SLAB_PG_PORT: String(PORT + 701), SLAB_PORT_BASE: String(PORT + 4000), SLAB_IDLE_REAP_MS: '2000',
+      },
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    try {
+      await waitFor(async () => {
+        try { return (await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps`)).status === 200 } catch { return false }
+      }, 'second daemon boot', 20000)
+      // loopback is auth-exempt on both daemons, so a local peer needs no
+      // token (node.json is created lazily by the TS daemon anyway)
+      let token2
+      try { token2 = JSON.parse(fs.readFileSync(path.join(dir2, 'node.json'), 'utf-8')).token } catch {}
+      r = await api('PUT', '/v1/peers/conf-peer', { url: `http://127.0.0.1:${PORT + 1}`, ...(token2 ? { token: token2 } : {}) })
+      ok(r.status === 200 && r.json?.peer?.name === 'conf-peer', 'PUT /v1/peers registers a peer', r.text)
+      r = await api('GET', '/v1/fleet')
+      const nodes = r.json?.nodes ?? []
+      ok(nodes.length === 2 && nodes[0]?.self === true && nodes[1]?.reachable === true,
+        'fleet shows both nodes, peer reachable', JSON.stringify(nodes.map((x) => ({ name: x.name, reachable: x.reachable }))))
+      const noAuth = await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps`, { headers: { 'x-forwarded-for': 'external' } })
+      ok(noAuth.status === 200, 'loopback exempt from auth (sanity)', String(noAuth.status))
+      await api('DELETE', '/v1/peers/conf-peer')
+    } finally {
+      daemon2.kill()
+      fs.rmSync(dir2, { recursive: true, force: true })
+    }
+  }
+
+  // shared-postgres teardown (namespaced by SLAB_PG_PORT)
+  try { docker('rm', '-f', `slab-postgres-${PORT + 700}`) } catch {}
+  try { docker('volume', 'rm', `slab-pgdata-${PORT + 700}`) } catch {}
 
   console.log(`\n${n - failures}/${n} passed`)
   if (failures) { console.log('--- daemon log tail ---'); console.log(daemonLog.join('').split('\n').slice(-15).join('\n')) }

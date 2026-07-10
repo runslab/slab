@@ -19,7 +19,7 @@ import { createAwsProvider } from './providers/aws'
 
 registerProvider('aws', createAwsProvider)
 
-const IDLE_REAP_INTERVAL_MS = 30_000
+const IDLE_REAP_INTERVAL_MS = Number(process.env.SLAB_IDLE_REAP_MS ?? 30_000)
 const LAST_REQUEST_SAVE_THROTTLE_MS = 5_000
 const JOB_HISTORY_MAX = 50            // finished jobs kept (older ones + their containers are pruned)
 const JOB_DEFAULT_TIMEOUT = '30m'

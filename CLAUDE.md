@@ -138,6 +138,25 @@ pgbouncer, all private, volumes — compose-grade, no auto-failover) and
 machines). Images from bitnami must use **`bitnamilegacy/*`** — the bitnami
 Docker Hub catalog is frozen (2025).
 
+## Architecture rule: docker never leaks above the engine
+
+The manifest/API/MCP surface is the product; `engine` (src/engine.ts,
+go/internal/engine) is a docker *adapter*; providers are other adapters of
+the same contracts (the trunk and the aws provider prove the contracts are
+substrate-free). Docker SDK types must never appear in api/proxy/state/
+daemon code — if a new layer needs docker, it goes through an engine
+method. This is what keeps podman/colima compatibility free and future
+substrates possible.
+
+## Go rewrite (go/)
+
+Module `github.com/runslab/slab/go`, single binary `cmd/slabd`. Parity
+ladder in cmd/slabd/main.go; definition of done per rung =
+`scripts/conformance.js` green with `DAEMON_CMD=go/bin/slabd`
+(`CONF_RUNG=n` scopes the run). The TS daemon is the reference
+implementation until the ladder is complete; behavior questions are
+answered by reading src/, not by inventing.
+
 ## Dev workflow (this checkout)
 
 - Build: `npm run build` (tsc + scripts/check-page.js). No test suite —
