@@ -22,6 +22,10 @@ const DAEMON_CMD = process.env.DAEMON_CMD ?? 'node dist/daemon.js'
 const API = `http://127.0.0.1:${PORT}`
 const RUN = Math.random().toString(36).slice(2, 7)
 
+// CONF_RUNG limits scope to a parity-ladder stage: 1 = app lifecycle only,
+// 2 = +systems, 3 = +jobs (default: everything).
+const RUNG = Number(process.env.CONF_RUNG ?? 99)
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-conf-'))
 let daemon = null
 let failures = 0
@@ -100,8 +104,10 @@ async function main() {
   r = await api('GET', '/v1/apps')
   ok(Array.isArray(r.json?.apps ?? r.json) || r.status === 200, 'GET /v1/apps lists')
 
-  // fetch() forbids overriding Host — use a raw request for the ingress check
-  const proxiedStatus = await new Promise((resolve, reject) => {
+  // fetch() forbids overriding Host — use a raw request for the ingress check.
+  // Deploy returns when the container runs, not when the app listens, so the
+  // probe retries briefly (same contract on both daemons).
+  const probeProxy = () => new Promise((resolve, reject) => {
     const req = http.request(
       { host: '127.0.0.1', port: PROXY, path: '/', headers: { Host: `${web}.localhost` } },
       (res) => { res.resume(); resolve(res.statusCode) },
@@ -109,6 +115,8 @@ async function main() {
     req.on('error', reject)
     req.end()
   })
+  let proxiedStatus = 0
+  await waitFor(async () => (proxiedStatus = await probeProxy()) === 200, 'ingress 200', 8000).catch(() => {})
   ok(proxiedStatus === 200, 'ingress routes Host header → app', `status ${proxiedStatus}`)
 
   const env = docker('exec', `slab-${web}`, 'env')
@@ -130,6 +138,15 @@ async function main() {
   ok(r.status === 200 && (r.json?.app?.state === 'stopped'), 'stop → stopped', r.text)
   r = await api('POST', `/v1/apps/${web}/start`)
   ok(r.status === 200 && (r.json?.app?.state === 'running'), 'start → running', r.text)
+
+  if (RUNG < 2) {
+    r = await api('DELETE', `/v1/apps/${web}`)
+    ok(r.status === 204, 'DELETE app')
+    try { docker('volume', 'rm', `slab-${web}-data`) } catch {}
+    console.log(`\n${n - failures}/${n} passed (rung 1 scope)`)
+    process.exitCode = failures ? 1 : 0
+    return
+  }
 
   // ── system: wires, private members, shared network ──────────────────────
   const sysName = `conf-sys-${RUN}`
