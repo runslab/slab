@@ -164,6 +164,7 @@ export interface Engine {
   // after start. Stops/removes any previous container first. Returns id.
   runContainer(app: AppRecord, imageTag: string, env: Record<string, string>, opts?: { publish?: boolean; networks?: string[]; volumes?: string[] }): Promise<string>
   loadImage(stream: NodeJS.ReadableStream): Promise<void>
+  followLogs(app: AppRecord, tail: number, out: NodeJS.WritableStream): { stop: () => void }
   stopContainer(app: AppRecord): Promise<void>       // stop, keep container (functions sleep this way)
   startContainer(app: AppRecord): Promise<void>      // docker start existing container
   removeContainer(app: AppRecord): Promise<void>     // stop + rm

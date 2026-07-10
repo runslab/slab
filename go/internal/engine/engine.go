@@ -229,6 +229,15 @@ func tarDir(dir string, w io.Writer) error {
 	})
 }
 
+// FollowLogs streams a container's logs to w until ctx is cancelled. Shells
+// `docker logs -f` — the CLI already handles demuxing and live tailing.
+func (e *Engine) FollowLogs(ctx context.Context, app string, tail int, w io.Writer) error {
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", fmt.Sprint(tail), containerName(app))
+	cmd.Stdout = w
+	cmd.Stderr = w
+	return cmd.Run()
+}
+
 func (e *Engine) Stop(ctx context.Context, app string) error {
 	t := 5
 	return e.cli.ContainerStop(ctx, containerName(app), container.StopOptions{Timeout: &t})

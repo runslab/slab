@@ -1,7 +1,7 @@
 // slab — docker engine. Implements Engine (types.ts) with dockerode against
 // the default local socket.
 import Docker from 'dockerode'
-import { execFile, execFileSync } from 'child_process'
+import { execFile, execFileSync, spawn } from 'child_process'
 import { promises as dns } from 'dns'
 import { AppRecord, Engine, JobRecord, TrunkConfig } from './types'
 import { TRUNK_INGRESS_PORT } from './trunk'
@@ -590,6 +590,15 @@ export function createEngine(): Engine {
     return demuxLogs(buf)
   }
 
+  // Stream a container's logs to a writable until it's closed. Shells
+  // `docker logs -f` (the CLI handles demux + live tail).
+  function followLogs(app: AppRecord, tail: number, out: NodeJS.WritableStream): { stop: () => void } {
+    const child = spawn('docker', ['logs', '-f', '--tail', String(tail), `slab-${app.name}`], { stdio: ['ignore', 'pipe', 'pipe'] })
+    child.stdout.pipe(out, { end: false })
+    child.stderr.pipe(out, { end: false })
+    return { stop: () => child.kill() }
+  }
+
   async function isRunning(app: AppRecord): Promise<boolean> {
     const info = await findContainerByLabel(`slab.app=${app.name}`)
     return info?.State === 'running'
@@ -717,6 +726,7 @@ export function createEngine(): Engine {
     startContainer,
     removeContainer,
     getLogs,
+    followLogs,
     isRunning,
     ensurePostgres,
     ensureNetwork,

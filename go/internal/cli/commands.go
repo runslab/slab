@@ -607,21 +607,42 @@ func cmdSystems() error {
 }
 
 func cmdLogs(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: slab logs <name> [-n N]")
-	}
-	tail := "100"
-	for i := 1; i < len(args); i++ {
-		if (args[i] == "-n" || args[i] == "--tail") && i+1 < len(args) {
+	tail, follow, daemon, name := "100", false, false, ""
+	for i := 0; i < len(args); i++ {
+		switch {
+		case (args[i] == "-n" || args[i] == "--tail") && i+1 < len(args):
 			tail = args[i+1]
+			i++
+		case args[i] == "-f" || args[i] == "--follow":
+			follow = true
+		case args[i] == "--daemon":
+			daemon = true
+		case !strings.HasPrefix(args[i], "-") && name == "":
+			name = args[i]
 		}
 	}
-	var logs string
-	if err := api.req("GET", "/v1/apps/"+args[0]+"/logs?tail="+tail, nil, &logs); err != nil {
-		return err
+	q := "tail=" + tail
+	if follow {
+		q += "&follow=1"
 	}
-	fmt.Println(logs)
-	return nil
+	var path string
+	if daemon {
+		path = "/v1/logs?" + q
+	} else {
+		if name == "" {
+			return fmt.Errorf("which app? (or use --daemon)")
+		}
+		path = "/v1/apps/" + name + "/logs?" + q
+	}
+	if !follow && !daemon {
+		var logs string
+		if err := api.req("GET", path, nil, &logs); err != nil {
+			return err
+		}
+		fmt.Println(logs)
+		return nil
+	}
+	return api.stream("GET", path, os.Stdout)
 }
 
 func cmdStopStart(verb string, args []string) error {

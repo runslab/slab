@@ -14,6 +14,7 @@ import (
 
 	"github.com/runslab/slab/go/internal/api"
 	"github.com/runslab/slab/go/internal/engine"
+	"github.com/runslab/slab/go/internal/logbuf"
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/proxy"
 	"github.com/runslab/slab/go/internal/state"
@@ -31,6 +32,7 @@ func envPort(name string, fallback int) int {
 }
 
 func Run(version string) {
+	log.SetOutput(logbuf.MultiWriter(os.Stderr))
 	st, err := state.Load()
 	if err != nil {
 		log.Fatalf("state: %v", err)

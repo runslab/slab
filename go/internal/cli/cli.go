@@ -108,6 +108,25 @@ func (c *apiClient) reqStream(method, path string, body io.Reader) error {
 	return nil
 }
 
+// stream copies a plain-text streaming response (follow logs) to w.
+func (c *apiClient) stream(method, path string, w io.Writer) error {
+	req, _ := http.NewRequest(method, c.base+path, nil)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := (&http.Client{}).Do(req) // no timeout — follow runs until Ctrl-C
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("logs failed: %d %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	_, err = io.Copy(w, resp.Body)
+	return err
+}
+
 func getJSON(path string) (map[string]any, error) {
 	var out map[string]any
 	err := api.req("GET", path, nil, &out)

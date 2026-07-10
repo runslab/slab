@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/runslab/slab/go/internal/dashboard"
 	"github.com/runslab/slab/go/internal/engine"
 	"github.com/runslab/slab/go/internal/gitsrc"
+	"github.com/runslab/slab/go/internal/logbuf"
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/state"
 	"github.com/runslab/slab/go/internal/tunnel"
@@ -228,6 +230,25 @@ func (s *Server) Handler() http.Handler {
 		if t, err := strconv.Atoi(r.URL.Query().Get("tail")); err == nil && t > 0 {
 			tail = t
 		}
+		if r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true" {
+			w.Header().Set("content-type", "text/plain; charset=utf-8")
+			flusher, _ := w.(http.Flusher)
+			pr, pw := io.Pipe()
+			go func() { _ = s.Eng.FollowLogs(r.Context(), rec.Name, tail, pw); pw.Close() }()
+			buf := make([]byte, 4096)
+			for {
+				n, err := pr.Read(buf)
+				if n > 0 {
+					_, _ = w.Write(buf[:n])
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
+				if err != nil {
+					return
+				}
+			}
+		}
 		out, err := s.Eng.Logs(r.Context(), rec.Name, tail)
 		if err != nil {
 			errJSON(w, 500, err.Error())
@@ -235,6 +256,41 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.Header().Set("content-type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(out))
+	})
+
+	// the daemon's OWN log — tail or follow, over the API so -N works too
+	mux.HandleFunc("GET /v1/logs", func(w http.ResponseWriter, r *http.Request) {
+		tail := 200
+		if t, err := strconv.Atoi(r.URL.Query().Get("tail")); err == nil && t > 0 {
+			tail = t
+		}
+		w.Header().Set("content-type", "text/plain; charset=utf-8")
+		for _, line := range logbuf.Default.Tail(tail) {
+			_, _ = w.Write([]byte(line + "\n"))
+		}
+		if r.URL.Query().Get("follow") != "1" && r.URL.Query().Get("follow") != "true" {
+			return
+		}
+		flusher, _ := w.(http.Flusher)
+		if flusher != nil {
+			flusher.Flush()
+		}
+		ch, unsub := logbuf.Default.Subscribe()
+		defer unsub()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case line, ok := <-ch:
+				if !ok {
+					return
+				}
+				_, _ = w.Write([]byte(line + "\n"))
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("GET /v1/systems", func(w http.ResponseWriter, r *http.Request) {

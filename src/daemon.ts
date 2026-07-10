@@ -32,6 +32,21 @@ class HttpError extends Error {
   }
 }
 
+// The daemon's own log ring, so `slab logs --daemon` can tail it over the
+// API (works no matter where stdout was redirected). console.* tees here.
+const daemonLog: string[] = []
+const daemonLogSubs = new Set<(line: string) => void>()
+const DAEMON_LOG_MAX = 2000
+function pushDaemonLog(line: string): void {
+  daemonLog.push(line)
+  if (daemonLog.length > DAEMON_LOG_MAX) daemonLog.splice(0, daemonLog.length - DAEMON_LOG_MAX)
+  for (const fn of daemonLogSubs) fn(line)
+}
+for (const level of ['log', 'error', 'warn'] as const) {
+  const orig = console[level].bind(console)
+  console[level] = (...a: unknown[]) => { orig(...a); pushDaemonLog(a.map(String).join(' ')) }
+}
+
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>
 
 function wrap(fn: AsyncHandler) {
@@ -650,10 +665,27 @@ async function main(): Promise<void> {
   api.get('/v1/apps/:name/logs', wrap(async (req, res) => {
     const record = getAppOr404(nameParam(req))
     const tail = parseTail(req.query.tail)
+    if (req.query.follow === '1' || req.query.follow === 'true') {
+      res.setHeader('content-type', 'text/plain; charset=utf-8')
+      const { stop } = engine.followLogs(record, tail, res)
+      req.on('close', stop)
+      return
+    }
     const logs = isProviderTarget(record.target)
       ? await getProvider(record.target!).logs(record, tail)
       : await engine.getLogs(record, tail)
     res.json({ logs })
+  }))
+
+  // the daemon's OWN log — tail or follow (so -N works for it too)
+  api.get('/v1/logs', wrap(async (req, res) => {
+    const tail = parseTail(req.query.tail)
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    for (const line of daemonLog.slice(-tail)) res.write(line + '\n')
+    if (req.query.follow !== '1' && req.query.follow !== 'true') { res.end(); return }
+    const sub = (line: string) => res.write(line + '\n')
+    daemonLogSubs.add(sub)
+    req.on('close', () => daemonLogSubs.delete(sub))
   }))
 
   api.put('/v1/apps/:name/secrets', wrap(async (req, res) => {

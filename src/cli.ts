@@ -450,12 +450,32 @@ program
   }))
 
 program
-  .command('logs <name>')
-  .description('print app logs')
+  .command('logs [name]')
+  .description('print app logs (or the daemon\'s own with --daemon); -f to follow')
   .option('-n, --tail <n>', 'number of lines', '100')
-  .action(action(async (name: string, opts: { tail: string }) => {
-    const { logs } = await api.logs(name, Number(opts.tail))
-    console.log(logs)
+  .option('-f, --follow', 'stream new lines until interrupted')
+  .option('--daemon', "the daemon's own log instead of an app's")
+  .action(action(async (name: string | undefined, opts: { tail: string; follow?: boolean; daemon?: boolean }) => {
+    const base = remotePeer ? remotePeer.url : `http://127.0.0.1:${DAEMON_PORT}`
+    const token = remotePeer?.token
+    const path = opts.daemon
+      ? `/v1/logs?tail=${Number(opts.tail)}${opts.follow ? '&follow=1' : ''}`
+      : (() => { if (!name) throw new Error('which app? (or use --daemon)'); return `/v1/apps/${name}/logs?tail=${Number(opts.tail)}${opts.follow ? '&follow=1' : ''}` })()
+    if (!opts.follow && !opts.daemon && name) {
+      const { logs } = await api.logs(name, Number(opts.tail))
+      console.log(logs)
+      return
+    }
+    // stream the plain-text response straight to stdout
+    const res = await fetch(base + path, { headers: token ? { authorization: `Bearer ${token}` } : undefined })
+    if (!res.ok || !res.body) throw new Error(`logs failed: ${res.status}`)
+    const reader = res.body.getReader()
+    const dec = new TextDecoder()
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      process.stdout.write(dec.decode(value, { stream: true }))
+    }
   }))
 
 program
