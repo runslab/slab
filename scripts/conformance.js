@@ -5,7 +5,7 @@
 // The Go daemon is done when this passes with DAEMON_CMD pointed at it:
 //
 //   node scripts/conformance.js                          # spec the TS daemon
-//   DAEMON_CMD="./go/bin/slabd" node scripts/conformance.js   # gate the port
+//   DAEMON_CMD="go/bin/slab daemon" node scripts/conformance.js   # gate the port
 //
 // Apps get unique names per run: the docker engine is shared with whatever
 // rack is live on this machine, and container names are slab-<app>.
@@ -434,7 +434,8 @@ node = "conf-peer"
 
   // ── MCP: both daemons must expose the identical agent tool surface ──────
   if (RUNG >= 5) {
-    const mcpCmd = DAEMON_CMD.includes('slabd') ? [cmd, [...args, 'mcp']] : ['node', ['dist/mcp.js']]
+    const isGo = DAEMON_CMD.includes('go/bin/slab')
+    const mcpCmd = isGo ? [cmd, ['mcp']] : ['node', ['dist/mcp.js']]
     const mcp = spawn(mcpCmd[0], mcpCmd[1], {
       env: { ...process.env, SLAB_DIR: dir, SLAB_PORT: String(PORT) },
       stdio: ['pipe', 'pipe', 'ignore'],
@@ -474,6 +475,18 @@ node = "conf-peer"
     } finally {
       mcp.kill()
     }
+
+    // ── CLI: the same verbs on both implementations ─────────────────────────
+    const cliCmd = isGo ? [cmd, []] : ['node', ['dist/cli.js']]
+    const cliEnv = { ...process.env, SLAB_DIR: dir, SLAB_PORT: String(PORT), SLAB_PROXY_PORT: String(PROXY) }
+    const cli = (...a) => execFileSync(cliCmd[0], [...cliCmd[1], ...a], { env: cliEnv, encoding: 'utf-8' })
+    ok(cli('status').includes('conf-a'), 'CLI status reaches the daemon')
+    ok(cli('list').startsWith('NAME'), 'CLI list renders the rack table')
+    ok(cli('systems').startsWith('NAME'), 'CLI systems renders')
+    let cliErr = ''
+    try { execFileSync(cliCmd[0], [...cliCmd[1], 'rm', 'no-such-app'], { env: cliEnv, encoding: 'utf-8', stdio: 'pipe' }) }
+    catch (e) { cliErr = String(e.stderr) }
+    ok(cliErr.includes('error:'), 'CLI errors go to stderr with exit 1', cliErr.slice(0, 60))
   }
 
   // shared-postgres teardown (namespaced by SLAB_PG_PORT)

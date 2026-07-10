@@ -680,7 +680,19 @@ export function createEngine(): Engine {
     await ensurePostgresContainer()
     await waitForPostgresReady()
     const dbName = `slab_${appName.replace(/-/g, '_')}`
-    await ensureDatabase(dbName)
+    // the postgres image boots a TEMPORARY server during first-run init and
+    // shuts it down before the real one — pg_isready can answer in that
+    // window, so retry the database work through transient shutdowns
+    const deadline = Date.now() + 30_000
+    for (;;) {
+      try {
+        await ensureDatabase(dbName)
+        break
+      } catch (err) {
+        if (Date.now() > deadline) throw err
+        await sleep(1000)
+      }
+    }
     return `postgresql://${PG_USER}:${PG_PASSWORD}@host.docker.internal:${PG_PORT}/${dbName}`
   }
 

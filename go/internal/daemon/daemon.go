@@ -1,13 +1,7 @@
-// slabd — the Go slab daemon. Parity ladder (scripts/conformance.js is the
-// gate; run with DAEMON_CMD="go/bin/slabd"):
-//
-//	rung 0  manifest parsing                                  ✓
-//	rung 1  state + engine + app lifecycle + ingress          ✓
-//	rung 2  systems, wires, private members, builds           ✓
-//	rung 3  jobs                                              ✓
-//	rung 4  secrets, postgres, wake/sleep, auth, peers, fleet ← here
-//	rung 5  trunks, tunnels, MCP, providers, dashboard
-package main
+// Package daemon boots the slab daemon: state, engine, API, ingress,
+// idle reaper. Parity ladder in cmd/slab/main.go; scripts/conformance.js is
+// the gate.
+package daemon
 
 import (
 	"context"
@@ -15,12 +9,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/runslab/slab/go/internal/api"
 	"github.com/runslab/slab/go/internal/engine"
 	"github.com/runslab/slab/go/internal/manifest"
-	"github.com/runslab/slab/go/internal/mcpserver"
 	"github.com/runslab/slab/go/internal/proxy"
 	"github.com/runslab/slab/go/internal/state"
 	"github.com/runslab/slab/go/internal/tunnel"
@@ -36,14 +30,7 @@ func envPort(name string, fallback int) int {
 	return fallback
 }
 
-func main() {
-	if len(os.Args) > 1 && os.Args[1] == "mcp" {
-		// slabd mcp — the agent surface: stdio MCP server proxying the daemon API
-		if err := mcpserver.Run("slabd-dev"); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
+func Run(version string) {
 	st, err := state.Load()
 	if err != nil {
 		log.Fatalf("state: %v", err)
@@ -59,15 +46,27 @@ func main() {
 
 	apiPort := envPort("SLAB_PORT", 7766)
 	proxyPort := envPort("SLAB_PROXY_PORT", 8080)
+
+	// network posture: env wins, then node.json (the CLI edits it), then safe defaults
+	nodeFile := state.LoadNodeFile()
 	bind := os.Getenv("SLAB_BIND")
+	if bind == "" {
+		bind = nodeFile.Bind
+	}
 	if bind == "" {
 		bind = "127.0.0.1"
 	}
-
 	advertise := os.Getenv("SLAB_ADVERTISE")
+	if advertise == "" {
+		advertise = nodeFile.Advertise
+	}
 	if advertise == "" {
 		advertise = "127.0.0.1"
 	}
+
+	// pidfile — the CLI restarts the daemon by it (slab node open/close, upgrade)
+	pidFile := filepath.Join(state.Dir(), "daemon.pid")
+	_ = os.WriteFile(pidFile, []byte(fmt.Sprint(os.Getpid())), 0o644)
 	srv := &api.Server{St: st, Eng: eng, NodeName: node.Name, Token: node.Token, ProxyPort: proxyPort, Advertise: advertise, Tunnels: tunnel.New()}
 
 	go idleReaper(st, eng)
@@ -77,7 +76,7 @@ func main() {
 		log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", bind, proxyPort), (&proxy.Proxy{St: st, Eng: eng}).Handler()))
 	}()
 
-	log.Printf("slabd (go) node %q api %s:%d", node.Name, bind, apiPort)
+	log.Printf("slab daemon (go, %s) node %q api %s:%d", version, node.Name, bind, apiPort)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", bind, apiPort), srv.Auth(srv.Handler())))
 }
 

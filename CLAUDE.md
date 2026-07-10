@@ -150,10 +150,13 @@ substrates possible.
 
 ## Go rewrite (go/)
 
-Module `github.com/runslab/slab/go`, single binary `cmd/slabd`. Parity
-ladder in cmd/slabd/main.go; definition of done per rung =
-`scripts/conformance.js` green with `DAEMON_CMD=go/bin/slabd`
-(`CONF_RUNG=n` scopes the run). The TS daemon is the reference
+Module `github.com/runslab/slab/go`, ONE binary `cmd/slab`: `slab daemon`,
+`slab mcp`, and every CLI verb (build: `cd go && go build -o bin/slab
+./cmd/slab`). Parity ladder in cmd/slab/main.go; definition of done per
+rung = `scripts/conformance.js` green with `DAEMON_CMD="go/bin/slab daemon"`
+(`CONF_RUNG=n` scopes the run). Releases: push a `v*` tag →
+.github/workflows/release.yml cross-compiles darwin/linux × amd64/arm64
+and publishes tarballs + checksums. The TS daemon is the reference
 implementation until the ladder is complete; behavior questions are
 answered by reading src/, not by inventing.
 

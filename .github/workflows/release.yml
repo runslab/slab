@@ -1,0 +1,39 @@
+# Release: push a v* tag -> build the single static slab binary for every
+# platform -> publish a GitHub release with tarballs + checksums.
+# The dashboard is embedded from go/internal/dashboard/dashboard.html, which
+# `npm run build` exports from src/dashboard.ts and commits — no Node here.
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+      - name: build all platforms
+        working-directory: go
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o dist/slab ./cmd/slab
+            tar -czf "dist/slab_${target%/*}_${target#*/}.tar.gz" -C dist slab
+            rm dist/slab
+          done
+          (cd dist && shasum -a 256 *.tar.gz > sha256sums.txt)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            go/dist/*.tar.gz
+            go/dist/sha256sums.txt
+          generate_release_notes: true

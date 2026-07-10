@@ -134,8 +134,26 @@ func (s *State) SystemsOf(app string) []*SystemRecord {
 }
 
 type NodeConfig struct {
-	Name  string `json:"name"`
-	Token string `json:"token"`
+	Name      string `json:"name,omitempty"`
+	Token     string `json:"token,omitempty"`
+	Bind      string `json:"bind,omitempty"`      // 0.0.0.0 when the node is open
+	Advertise string `json:"advertise,omitempty"` // what peers dial for trunks
+}
+
+// NodeFile is the node.json path (the CLI edits it; the daemon reads it).
+func NodeFile() string { return filepath.Join(Dir(), "node.json") }
+
+func LoadNodeFile() *NodeConfig {
+	var n NodeConfig
+	if data, err := os.ReadFile(NodeFile()); err == nil {
+		_ = json.Unmarshal(data, &n)
+	}
+	return &n
+}
+
+func SaveNodeFile(n *NodeConfig) error {
+	data, _ := json.MarshalIndent(n, "", "  ")
+	return os.WriteFile(NodeFile(), data, 0o600)
 }
 
 func Dir() string {
@@ -248,7 +266,7 @@ func DeleteSecrets(app string) { _ = os.Remove(secretsFile(app)) }
 
 // EnsureNode loads or creates node.json (name + auth token).
 func EnsureNode() (*NodeConfig, error) {
-	file := filepath.Join(Dir(), "node.json")
+	file := NodeFile()
 	data, err := os.ReadFile(file)
 	if err == nil {
 		var n NodeConfig
