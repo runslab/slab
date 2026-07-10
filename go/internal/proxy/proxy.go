@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/runslab/slab/go/internal/engine"
@@ -21,6 +22,15 @@ const wakeTimeout = 15 * time.Second
 type Proxy struct {
 	St  *state.State
 	Eng *engine.Engine
+
+	routeMu    sync.Mutex
+	routes     map[string]*peerRoute
+	routeCache map[string]routeEntry
+}
+
+type routeEntry struct {
+	route *peerRoute
+	at    time.Time
 }
 
 func sendJSON(w http.ResponseWriter, status int, msg string) {
@@ -46,6 +56,17 @@ func (p *Proxy) Handler() http.Handler {
 		p.St.Records.Unlock()
 
 		if rec == nil {
+			// cluster ingress: not ours — find the peer that runs it and
+			// reverse-proxy to that node's ingress (one rack, any node)
+			if route := p.resolvePeerApp(name); route != nil {
+				target, _ := url.Parse(fmt.Sprintf("http://%s:%d", route.host, route.proxyPort))
+				rp := httputil.NewSingleHostReverseProxy(target)
+				rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+					sendJSON(w, 502, "cluster ingress to "+route.node+" failed: "+err.Error())
+				}
+				rp.ServeHTTP(w, r) // Host header travels as-is; the peer routes by it
+				return
+			}
 			sendJSON(w, 404, "unknown app")
 			return
 		}
@@ -64,6 +85,96 @@ func (p *Proxy) Handler() http.Handler {
 		target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", *rec.HostPort))
 		httputil.NewSingleHostReverseProxy(target).ServeHTTP(w, r)
 	})
+}
+
+type peerRoute struct {
+	node      string
+	host      string
+	proxyPort int
+}
+
+// resolvePeerApp finds which peer runs <name> and how to reach its ingress.
+// Cached briefly — apps don't move every request, and the scan hits the
+// network. Returns nil when no peer owns the app.
+func (p *Proxy) resolvePeerApp(name string) *peerRoute {
+	p.routeMu.Lock()
+	if p.routes == nil {
+		p.routes = map[string]*peerRoute{}
+	}
+	if e, ok := p.routeCache[name]; ok && time.Since(e.at) < 5*time.Second {
+		r := e.route
+		p.routeMu.Unlock()
+		return r
+	}
+	p.routeMu.Unlock()
+
+	p.St.Records.RLock()
+	peers := make([]*state.PeerRecord, 0, len(p.St.Peers))
+	for _, pr := range p.St.Peers {
+		peers = append(peers, pr)
+	}
+	p.St.Records.RUnlock()
+
+	var found *peerRoute
+	for _, peer := range peers {
+		client := &http.Client{Timeout: 3 * time.Second}
+		req, _ := http.NewRequest("GET", peer.URL+"/v1/apps", nil)
+		if peer.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+peer.Token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		var body struct {
+			Apps []struct {
+				Name     string `json:"name"`
+				HostPort *int   `json:"hostPort"`
+			} `json:"apps"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		has := false
+		for _, a := range body.Apps {
+			if a.Name == name && a.HostPort != nil {
+				has = true
+				break
+			}
+		}
+		if !has {
+			continue
+		}
+		hreq, _ := http.NewRequest("GET", peer.URL+"/v1/health", nil)
+		if peer.Token != "" {
+			hreq.Header.Set("Authorization", "Bearer "+peer.Token)
+		}
+		hresp, err := client.Do(hreq)
+		if err != nil {
+			continue
+		}
+		var health struct {
+			Node      string `json:"node"`
+			ProxyPort int    `json:"proxyPort"`
+		}
+		_ = json.NewDecoder(hresp.Body).Decode(&health)
+		hresp.Body.Close()
+		found = &peerRoute{node: health.Node, host: hostOf(peer.URL), proxyPort: health.ProxyPort}
+		break
+	}
+	p.routeMu.Lock()
+	if p.routeCache == nil {
+		p.routeCache = map[string]routeEntry{}
+	}
+	p.routeCache[name] = routeEntry{route: found, at: time.Now()}
+	p.routeMu.Unlock()
+	return found
+}
+
+func hostOf(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	return rawURL
 }
 
 // wake starts the container and polls until the app answers HTTP. A bare

@@ -4,8 +4,12 @@ import http from 'http'
 import net from 'net'
 import httpProxy from 'http-proxy'
 import { SlabState, Engine, AppRecord } from './types'
+import { clientFor } from './api-client'
 
 const WAKE_TIMEOUT_MS = 15_000
+// cluster ingress route cache: appName -> {host, proxyPort} | null (5s TTL)
+const clusterRoutes = new Map<string, { at: number; route: { node: string; host: string; proxyPort: number } | null }>()
+function hostOfUrl(u: string): string { try { return new URL(u).hostname } catch { return u } }
 const WAKE_POLL_INTERVAL_MS = 200
 
 export interface ProxyDeps {
@@ -68,6 +72,24 @@ export function createProxy(deps: ProxyDeps): http.Server {
     }
   })
 
+  async function resolvePeerApp(name: string): Promise<{ node: string; host: string; proxyPort: number } | null> {
+    const cached = clusterRoutes.get(name)
+    if (cached && Date.now() - cached.at < 5000) return cached.route
+    let route: { node: string; host: string; proxyPort: number } | null = null
+    for (const peer of Object.values(state.peers ?? {})) {
+      try {
+        const c = clientFor(peer.url, peer.token, 3000)
+        const { apps } = await c.listApps()
+        if (!apps.some((a) => a.name === name && a.hostPort != null)) continue
+        const h = await c.health()
+        route = { node: h.node ?? peer.name, host: hostOfUrl(peer.url), proxyPort: h.proxyPort }
+        break
+      } catch { /* peer unreachable — try the next */ }
+    }
+    clusterRoutes.set(name, { at: Date.now(), route })
+    return route
+  }
+
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const name = extractAppName(req.headers.host)
     if (!name) {
@@ -76,6 +98,16 @@ export function createProxy(deps: ProxyDeps): http.Server {
     }
     const app: AppRecord | undefined = state.apps[name]
     if (!app) {
+      // cluster ingress: a peer may run it — reverse-proxy to that node's
+      // ingress (one rack, any node). The Host header travels as-is.
+      const route = await resolvePeerApp(name)
+      if (route) {
+        onRequest(name)
+        proxy.web(req, res, { target: `http://${route.host}:${route.proxyPort}` }, (err) => {
+          if (!res.headersSent) sendJson(res, 502, { error: `cluster ingress to ${route.node} failed: ${err.message}` })
+        })
+        return
+      }
       sendJson(res, 404, { error: 'unknown app' })
       return
     }

@@ -425,6 +425,27 @@ node = "conf-peer"
       await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps/${spanApi}`, { method: 'DELETE' })
       try { docker('rm', '-f', `slab-trunk-conf-peer-${spanSys}`) } catch {}
 
+      // ── cluster ingress: reach a peer's app through THIS node's proxy ────
+      const ciApp = `conf-ci-${RUN}`
+      const ciDir = path.join(dir, 'fixtures', ciApp)
+      fs.mkdirSync(ciDir, { recursive: true })
+      fs.writeFileSync(path.join(ciDir, 'slab.toml'), `name = "${ciApp}"\ntype = "service"\nport = 80\nimage = "nginx:alpine"\n`)
+      // create+deploy on the PEER (daemon2)
+      await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceDir: ciDir }) })
+      const ciDep = await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps/${ciApp}/deploy`, { method: 'POST' })
+      ok(ciDep.status === 200, 'peer deploys its own app (cluster ingress setup)', String(ciDep.status))
+      // now hit THIS node's ingress (PROXY) for an app it does not have locally
+      let ciStatus = 0
+      await waitFor(async () => {
+        ciStatus = await new Promise((resolve) => {
+          const rq = http.request({ host: '127.0.0.1', port: PROXY, path: '/', headers: { Host: `${ciApp}.localhost` } }, (res2) => { res2.resume(); resolve(res2.statusCode) })
+          rq.on('error', () => resolve(0)); rq.end()
+        })
+        return ciStatus === 200
+      }, 'cluster ingress', 15000).catch(() => {})
+      ok(ciStatus === 200, 'this node proxies to a peer-owned app by Host header', `status ${ciStatus}`)
+      await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps/${ciApp}`, { method: 'DELETE' })
+
       // ── image shipping: build here, run there — no source on the peer ────
       const shipApp = `conf-shipped-${RUN}`
       const shipDir = path.join(dir, 'fixtures', shipApp)
