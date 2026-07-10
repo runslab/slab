@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -145,10 +146,27 @@ func (e *Engine) RunContainer(ctx context.Context, app *state.AppRecord, imageTa
 	return created.ID, nil
 }
 
-// BuildImage tars the source dir and builds its Dockerfile into <tag>.
+// BuildImage builds the source's Dockerfile into <tag>. It prefers the
+// docker CLI (BuildKit: modern Dockerfiles use RUN --mount and
+// FROM --platform=$BUILDPLATFORM, which the API's legacy builder can't run)
+// and falls back to the SDK tar-stream path when no CLI is present.
 func (e *Engine) BuildImage(ctx context.Context, sourceDir, tag string, dockerfile string) error {
 	if dockerfile == "" {
 		dockerfile = "Dockerfile"
+	}
+	if _, err := exec.LookPath("docker"); err == nil {
+		cmd := exec.CommandContext(ctx, "docker", "build", "-t", tag, "-f", filepath.Join(sourceDir, dockerfile), sourceDir)
+		cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+			from := len(lines) - 6
+			if from < 0 {
+				from = 0
+			}
+			return fmt.Errorf("build failed: %s", strings.Join(lines[from:], " | "))
+		}
+		return nil
 	}
 	pr, pw := io.Pipe()
 	go func() { pw.CloseWithError(tarDir(sourceDir, pw)) }()

@@ -1,6 +1,7 @@
 // slab — docker engine. Implements Engine (types.ts) with dockerode against
 // the default local socket.
 import Docker from 'dockerode'
+import { execFile, execFileSync } from 'child_process'
 import { promises as dns } from 'dns'
 import { AppRecord, Engine, JobRecord, TrunkConfig } from './types'
 import { TRUNK_INGRESS_PORT } from './trunk'
@@ -123,6 +124,28 @@ export function createEngine(): Engine {
     }
   }
 
+  // Modern Dockerfiles (RUN --mount, FROM --platform=$BUILDPLATFORM) need
+  // BuildKit, which the API's legacy builder lacks — prefer the docker CLI.
+  function cliBuild(context: string, tag: string, dockerfile: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile('docker', ['build', '-t', tag, '-f', `${context}/${dockerfile}`, context],
+        { env: { ...process.env, DOCKER_BUILDKIT: '1' }, timeout: 1_800_000, maxBuffer: 64 * 1024 * 1024 },
+        (err, _stdout, stderr) => {
+          if (!err) return resolve()
+          const tail = (stderr || err.message).trim().split('\n').slice(-6).join(' | ')
+          reject(new Error(`build failed: ${tail}`))
+        })
+    })
+  }
+  let dockerCliAvailable: boolean | null = null
+  function hasDockerCli(): boolean {
+    if (dockerCliAvailable === null) {
+      try { execFileSync('docker', ['--version'], { stdio: 'ignore' }); dockerCliAvailable = true }
+      catch { dockerCliAvailable = false }
+    }
+    return dockerCliAvailable
+  }
+
   async function buildImage(app: AppRecord): Promise<string> {
     if (app.manifest.image) {
       await pullImage(app.manifest.image)
@@ -130,6 +153,10 @@ export function createEngine(): Engine {
     }
 
     const tag = `slab/${app.name}:${app.version}`
+    if (hasDockerCli()) {
+      await cliBuild(app.sourceDir, tag, app.manifest.dockerfile ?? 'Dockerfile')
+      return tag
+    }
     let stream: NodeJS.ReadableStream
     try {
       stream = await docker.buildImage({ context: app.sourceDir, src: ['.'] }, { t: tag, dockerfile: app.manifest.dockerfile ?? 'Dockerfile' })
@@ -305,6 +332,10 @@ export function createEngine(): Engine {
     if (!job.sourceDir) throw new Error(`job ${job.id} has neither an image nor a source directory`)
     const suffix = job.id.slice(job.name.length + 1) || 'latest'
     const tag = `slab-job/${job.name}:${suffix}`
+    if (hasDockerCli()) {
+      await cliBuild(job.sourceDir, tag, 'Dockerfile')
+      return tag
+    }
     let stream: NodeJS.ReadableStream
     try {
       stream = await docker.buildImage({ context: job.sourceDir, src: ['.'] }, { t: tag })
