@@ -52,12 +52,46 @@ type SystemRecord struct {
 	SourceFile  string            `json:"sourceFile"`
 }
 
+type JobState string
+
+const (
+	JobQueued    JobState = "queued"
+	JobRunning   JobState = "running"
+	JobSucceeded JobState = "succeeded"
+	JobFailed    JobState = "failed"
+	JobCancelled JobState = "cancelled"
+)
+
+// JobRecord mirrors the TS JobRecord (src/types.ts).
+type JobRecord struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	SourceDir   *string           `json:"sourceDir"`
+	GitURL      *string           `json:"gitUrl"`
+	Image       *string           `json:"image"`
+	Command     []string          `json:"command"`
+	Env         map[string]string `json:"env"`
+	Systems     []string          `json:"systems,omitempty"`
+	Timeout     string            `json:"timeout"`
+	State       JobState          `json:"state"`
+	ExitCode    *int              `json:"exitCode"`
+	ContainerID *string           `json:"containerId"`
+	Error       *string           `json:"error"`
+	CreatedAt   string            `json:"createdAt"`
+	StartedAt   *string           `json:"startedAt"`
+	FinishedAt  *string           `json:"finishedAt"`
+}
+
 type State struct {
 	Apps    map[string]*AppRecord    `json:"apps"`
 	Systems map[string]*SystemRecord `json:"systems"`
+	Jobs    map[string]*JobRecord    `json:"jobs"`
 
-	mu   sync.Mutex `json:"-"`
-	file string     `json:"-"`
+	// Records guards the maps — node is single-threaded, Go is not; handlers
+	// take Lock, the proxy takes RLock. Save() has its own file mutex.
+	Records sync.RWMutex `json:"-"`
+	mu      sync.Mutex   `json:"-"`
+	file    string       `json:"-"`
 }
 
 // SystemsOf returns every system the app is a member of.
@@ -93,7 +127,7 @@ func Load() (*State, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	s := &State{Apps: map[string]*AppRecord{}, Systems: map[string]*SystemRecord{}, file: filepath.Join(dir, "state.json")}
+	s := &State{Apps: map[string]*AppRecord{}, Systems: map[string]*SystemRecord{}, Jobs: map[string]*JobRecord{}, file: filepath.Join(dir, "state.json")}
 	data, err := os.ReadFile(s.file)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -109,6 +143,9 @@ func Load() (*State, error) {
 	}
 	if s.Systems == nil {
 		s.Systems = map[string]*SystemRecord{}
+	}
+	if s.Jobs == nil {
+		s.Jobs = map[string]*JobRecord{}
 	}
 	return s, nil
 }

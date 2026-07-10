@@ -250,6 +250,83 @@ func demux(raw []byte) string {
 	return sb.String()
 }
 
+// RunJob creates and starts a one-shot container: slab-job-<id>, labeled,
+// no restart policy, networks joined BEFORE start (a fast job would race
+// the DNS setup otherwise). Returns the container id.
+func (e *Engine) RunJob(ctx context.Context, id string, imageTag string, command []string, env map[string]string, networks []string) (string, error) {
+	// a crashed prior daemon could have left a container for this id behind
+	list, _ := e.cli.ContainerList(ctx, container.ListOptions{
+		All: true, Filters: filters.NewArgs(filters.Arg("label", "slab.job="+id)),
+	})
+	for _, c := range list {
+		_ = e.cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true})
+	}
+
+	envList := make([]string, 0, len(env))
+	for k, v := range env {
+		envList = append(envList, k+"="+v)
+	}
+	cfg := &container.Config{Image: imageTag, Env: envList, Labels: map[string]string{"slab.job": id}}
+	if len(command) > 0 {
+		cfg.Cmd = command
+	}
+	host := &container.HostConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled}}
+	created, err := e.cli.ContainerCreate(ctx, cfg, host, nil, nil, "slab-job-"+id)
+	if err != nil {
+		return "", fmt.Errorf("failed to create container for job %s: %w", id, err)
+	}
+	for _, net := range networks {
+		if err := e.cli.NetworkConnect(ctx, net, created.ID, &network.EndpointSettings{}); err != nil {
+			_ = e.cli.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
+			return "", fmt.Errorf("failed to join job %s to network %s: %w", id, net, err)
+		}
+	}
+	if err := e.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+		_ = e.cli.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
+		return "", fmt.Errorf("failed to start job %s: %w", id, err)
+	}
+	return created.ID, nil
+}
+
+// WaitJob blocks until the container exits and returns its status code.
+func (e *Engine) WaitJob(ctx context.Context, containerID string) (int, error) {
+	waitC, errC := e.cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	select {
+	case res := <-waitC:
+		return int(res.StatusCode), nil
+	case err := <-errC:
+		return -1, err
+	case <-ctx.Done():
+		return -1, ctx.Err()
+	}
+}
+
+// KillContainer force-stops a container by id (timeout enforcement, cancel).
+func (e *Engine) KillContainer(ctx context.Context, containerID string) error {
+	return e.cli.ContainerKill(ctx, containerID, "KILL")
+}
+
+// RemoveContainerByID force-removes a container.
+func (e *Engine) RemoveContainerByID(ctx context.Context, containerID string) error {
+	return e.cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+}
+
+// ContainerLogsByID returns demuxed logs for a raw container id.
+func (e *Engine) ContainerLogsByID(ctx context.Context, containerID string, tail int) (string, error) {
+	rc, err := e.cli.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true, ShowStderr: true, Tail: fmt.Sprint(tail),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	raw, err := io.ReadAll(rc)
+	if err != nil {
+		return "", err
+	}
+	return demux(raw), nil
+}
+
 // WaitReady polls the container until it reports running (or errors out).
 func (e *Engine) WaitReady(ctx context.Context, app string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)

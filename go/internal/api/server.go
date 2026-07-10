@@ -252,6 +252,8 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, map[string]any{"detached": sys.Name})
 	})
 
+	s.jobRoutes(mux)
+
 	return mux
 }
 
