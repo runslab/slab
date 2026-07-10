@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc && node scripts/check-page.js",
     "dev": "tsx src/daemon.ts",
-    "daemon": "node dist/daemon.js"
+    "daemon": "node dist/daemon.js",
+    "conformance": "node scripts/conformance.js"
   },
   "keywords": [],
   "author": "",
