@@ -225,7 +225,16 @@ Rough order; nothing here is promised, everything here is intended.
    [docs/design/providers.md](docs/design/providers.md). Next in this
    lane: jobs + systems capabilities, native SDK implementation, more
    providers.
-8. **Go rewrite (v1.0, decided).** TypeScript was the right spike language
+8. **Databases.** Generalize `postgres = true` into declared intent, both
+   spellings isomorphic: `database = "mongo"` ⟺ `mongo = true`, and
+   `database = ["postgres", "mongo"]` ⟺ both booleans. Every engine follows
+   the pattern postgres proved: one shared container per engine, one
+   namespace per app, one injected URL (`REDIS_URL`, `MONGO_URL`,
+   `CLICKHOUSE_URL`). Also in this lane: **postgres cluster support** —
+   examples/pg-cluster is already the shape (primary + streaming replica
+   behind pgbouncer); real failover means promoting the replica and
+   repointing pgbouncer, which wants to be an agent verb, not a pager page.
+9. **Go rewrite (v1.0, decided).** TypeScript was the right spike language
    (MCP SDK first-class, product-in-a-day). Go is the right shipping language:
    the entire container/networking neighborhood lives there (Docker client,
    `httputil.ReverseProxy`, cloudflared itself), goroutines match the
