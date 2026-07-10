@@ -7,8 +7,8 @@
 **the localhost hyperscaler**
 
 Your machine, run like a cloud: containers, HTTP ingress, Postgres, secrets,
-public tunnels, and one-shot jobs. Drive it from a CLI, a live hi-fi-rack
-dashboard, or AI agents speaking MCP.
+public tunnels, and one-shot jobs. Drive it from a CLI, a live dashboard,
+or AI agents speaking MCP.
 
 *one machine · one daemon · zero cloud accounts*
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>slab — the localhost hyperscaler</title>
-<meta name="description" content="Your machines, run like a cloud: containers, ingress, Postgres, secrets, tunnels, jobs, and multi-node systems — one daemon, zero cloud accounts.">
+<meta name="description" content="Your machines, run like a cloud: containers, ingress, Postgres, secrets, tunnels, jobs, and multi-node systems. One daemon, zero cloud accounts.">
 <link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><polygon points="16,4 30,11 16,18 2,11" fill="%23d6d3cb"/><polygon points="2,11 16,18 16,28 2,21" fill="%2398958d"/><polygon points="30,11 16,18 16,28 30,21" fill="%2368655e"/><circle cx="24.5" cy="18.5" r="3.4" fill="%23ffb454" opacity=".35"/><circle cx="24.5" cy="18.5" r="1.9" fill="%23ffb454"/></svg>'>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -369,7 +369,7 @@
     <a href="https://github.com/runslab/slab/tree/master/docs">docs</a>
     <a href="https://github.com/runslab/slab">github</a>
   </span>
-  <span class="skins" role="group" aria-label="page skin — the dashboard is skinnable the same way">
+  <span class="skins" role="group" aria-label="page skin: the dashboard is skinnable the same way">
     <span class="lbl">skin</span>
     <button data-s="pour" onclick="setSkin('pour')">pour</button>
     <button data-s="stereo" onclick="setSkin('stereo')">stereo</button>
@@ -386,19 +386,19 @@
     <h1>slab</h1>
     <p class="thesis">Pour a foundation on the machines you already own.
     One daemon gives you <b>containers, ingress, Postgres, secrets, public
-    tunnels, one-shot jobs</b> — and systems that span your laptop, the mac
+    tunnels, one-shot jobs</b>, and systems that span your laptop, the mac
     mini in the closet, and a $5 VPS. No cloud account. No YAML.</p>
     <div class="install">
       <code id="cmd">curl -fsSL https://runslab.run/install | bash</code>
       <button onclick="copyCmd(this)" aria-label="copy install command">copy</button>
     </div>
-    <p class="after-install">needs docker · node ≥ 20 · git — the installer checks, and tells you the exact fix</p>
+    <p class="after-install">needs docker · node ≥ 20 · git · the installer checks and tells you the exact fix</p>
     <div class="try-row">
-      <a href="https://codespaces.new/runslab/slab?quickstart=1" title="zero install — the daemon boots, the rack seeds itself, the dashboard opens">
+      <a href="https://codespaces.new/runslab/slab?quickstart=1" title="zero install: the daemon boots, the rack seeds itself, the dashboard opens">
         <img src="https://github.com/codespaces/badge.svg" alt="Open in GitHub Codespaces" height="26">
       </a>
       <a class="aws-pill" href="https://github.com/runslab/slab/blob/master/docs/providers/aws.md"
-         title="slab deploy --target aws — Fargate in your own account, no stored keys">deploy to aws ↗</a>
+         title="slab deploy --target aws: Fargate in your own account, no stored keys">deploy to aws ↗</a>
     </div>
   </div>
 
@@ -433,9 +433,9 @@
       </div>
       <div class="cabmark">arcade<span class="chinfo">waffle slab · 3 members · 2 wires</span></div>
     </div>
-    <p class="cabcap">this is the dashboard's actual language — every app a rack unit,
+    <p class="cabcap">this is the dashboard's actual language: every app a rack unit,
     flip one open for its board · <a href="https://github.com/runslab/slab/blob/master/docs/skins.md">skinnable</a>
-    — this page too, try the switcher ↑</p>
+    (this page too: try the switcher ↑)</p>
 
     <div class="sheetlet" role="img" aria-label="structural section drawing of a waffle slab: three apps bear on top, trunks run concealed in the voids, the span reads laptop to mac mini to VPS">
       <svg viewBox="0 0 640 400" fill="none">
@@ -518,7 +518,7 @@
           <text x="12" y="9" font-family="'American Typewriter', monospace" font-size="7" fill="#26251f" text-anchor="middle">S-1</text>
         </g>
       </svg>
-      <div class="caption"><span><b>SECTION A–A</b> · WAFFLE SLAB, TYP.</span><span>SCALE: LOCALHOST · <a href="https://github.com/runslab/slab/blob/master/docs/skins.md">skinnable</a> — try the switcher ↑</span></div>
+      <div class="caption"><span><b>SECTION A–A</b> · WAFFLE SLAB, TYP.</span><span>SCALE: LOCALHOST · <a href="https://github.com/runslab/slab/blob/master/docs/skins.md">skinnable</a> · try the switcher ↑</span></div>
     </div>
   </div>
 </header>
@@ -531,7 +531,7 @@
         <span class="unum">U01</span><span class="pwr"></span>
         <div class="plate">
           <div class="name"><b>deploy</b><small>apps</small></div>
-          <div class="spec">any repo with a Dockerfile, zero config — services stay up, functions scale to zero</div>
+          <div class="spec">any repo with a Dockerfile, zero config; services stay up, functions scale to zero</div>
         </div>
         <pre>$ slab deploy owner/repo
 <b>deployed repo -> http://repo.localhost:8080</b></pre>
@@ -540,7 +540,7 @@
         <span class="unum">U02</span><span class="pwr"></span>
         <div class="plate">
           <div class="name"><b>run</b><small>jobs</small></div>
-          <div class="spec">run to completion — exit code back, logs kept, timeout reaps runaways</div>
+          <div class="spec">run to completion; exit code back, logs kept, timeout reaps runaways</div>
         </div>
         <pre>$ slab run . -- npm test
 <i>scheduling on garage (0 active jobs)</i>
@@ -550,7 +550,7 @@
         <span class="unum">U03</span><span class="pwr"></span>
         <div class="plate">
           <div class="name"><b>up</b><small>systems</small></div>
-          <div class="spec">apps wired on a private network — private members get no host port at all</div>
+          <div class="spec">apps wired on a private network; private members get no host port at all</div>
         </div>
         <pre>$ slab up ./system.toml
 <i>  game       -> http://game.localhost:8080</i>
@@ -572,11 +572,11 @@
       <div class="srow"><span class="k">secrets</span><span class="dots"></span><span class="v">outside the manifest, injected at deploy, names-only reads</span></div>
       <div class="srow"><span class="k">tunnels</span><span class="dots"></span><span class="v"><code>slab expose</code> → public https, no account, no domain</span></div>
       <div class="srow"><span class="k">wires</span><span class="dots"></span><span class="v">env bindings between members; patching redeploys the caller</span></div>
-      <div class="srow"><span class="k">trunks</span><span class="dots"></span><span class="v">systems span machines — private members included, byte-identical urls</span></div>
+      <div class="srow"><span class="k">trunks</span><span class="dots"></span><span class="v">systems span machines; private members included, byte-identical urls</span></div>
       <div class="srow"><span class="k">cluster</span><span class="dots"></span><span class="v">named nodes, <code>--node garage</code> targeting, <code>--node any</code> scheduling</span></div>
       <div class="srow"><span class="k">fleet</span><span class="dots"></span><span class="v">zoom out: every node a band, dead nodes shown honestly</span></div>
       <div class="srow"><span class="k">zero manifest</span><span class="dots"></span><span class="v">no slab.toml? name from the repo, port from EXPOSE</span></div>
-      <div class="srow"><span class="k">cloud targets</span><span class="dots"></span><span class="v"><code>--target aws</code>: services → App Runner, functions → Lambda — your account, no stored keys</span></div>
+      <div class="srow"><span class="k">cloud targets</span><span class="dots"></span><span class="v"><code>--target aws</code>: services → App Runner, functions → Lambda; your account, no stored keys</span></div>
       <div class="srow"><span class="k">skins</span><span class="dots"></span><span class="v">stereo rack · flat console · or one css file of your own</span></div>
       <div class="srow"><span class="k">upgrades</span><span class="dots"></span><span class="v"><code>slab upgrade</code> — pull, rebuild, restart; state survives</span></div>
     </div>
@@ -586,12 +586,12 @@
 <section>
   <div class="sect-head"><h2>Choose your slab system</h2><span class="rule"></span><span class="tag">how a system carries load</span></div>
   <div class="pour">
-    <div class="cast"><h3>Flat</h3><p>No wires. Members rest directly on the ingress — maximum clear ceiling height.</p><span class="stamp">no beams</span></div>
+    <div class="cast"><h3>Flat</h3><p>No wires. Members rest directly on the ingress: maximum clear ceiling height.</p><span class="stamp">no beams</span></div>
     <div class="cast"><h3>One-way</h3><p>Load travels one direction. Pipelines, feeders, ingest chains.</p><span class="stamp">directed</span></div>
-    <div class="cast"><h3>Two-way</h3><p>Bending in all directions — members that call each other.</p><span class="stamp">mutual</span></div>
+    <div class="cast"><h3>Two-way</h3><p>Bending in all directions: members that call each other.</p><span class="stamp">mutual</span></div>
     <div class="cast waffle"><h3>Waffle</h3><p>Spans machines. The trunks are the utilities concealed in the voids.</p><span class="stamp">multi-node</span></div>
   </div>
-  <p class="pour-note">the dashboard stamps every system's nameplate with its type — computed from the wire graph, not declared. <code>examples/</code> ships one of each.</p>
+  <p class="pour-note">the dashboard stamps every system's nameplate with its type, computed from the wire graph, not declared. <code>examples/</code> ships one of each.</p>
 </section>
 
 <section>
@@ -600,8 +600,8 @@
     <div class="side">
       <p class="thesis">Agents create infrastructure faster than humans can track it. The platform must make running things <em>legible, bounded, reversible.</em></p>
       <p>slab ships an MCP server: an agent takes a repo to a running, routable
-      app — or drops a sandbox job inside a system's private network to probe
-      real members over real wiring — without ever learning Docker. Timeouts
+      app, or drops a sandbox job inside a system's private network to probe
+      real members over real wiring, without ever learning Docker. Timeouts
       reap what nobody remembers.</p>
       <p><a href="https://github.com/runslab/slab/blob/master/docs/agents.md">the tool surface →</a></p>
     </div>
@@ -610,16 +610,16 @@
       <pre><span class="p">›</span> <span class="t">slab_run</span> <span class="o">{ systems: ["arcade"], image: "alpine:3",</span>
 <span class="o">           command: ["wget","-qO-","http://scoreboard:4000/health"] }</span>
 <span class="g">{ state: "succeeded", exitCode: 0, logs: "ok" }</span>
-<span class="p">›</span> <span class="o">scoreboard is healthy — patching the ssl bug, redeploying…</span>
+<span class="p">›</span> <span class="o">scoreboard is healthy; patching the ssl bug, redeploying…</span>
 <span class="p">›</span> <span class="t">slab_deploy</span> <span class="o">{ name: "scoreboard" }</span>
 <span class="g">{ state: "running", version: 8 }</span>
-<span class="p">›</span> <span class="a">system arcade repaired — probe rerun, all members answering</span></pre>
+<span class="p">›</span> <span class="a">system arcade repaired; probe rerun, all members answering</span></pre>
     </div>
   </div>
 </section>
 
 <footer>
-  <span>slab · v0 — weekend-spike maturity, honestly stated</span>
+  <span>slab · v0 · known sharp edges, honestly stated</span>
   <span class="r">
     <a href="https://github.com/runslab/slab">github</a>
     <a href="https://github.com/runslab/slab/tree/master/docs">docs</a>
