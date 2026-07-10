@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type Manifest struct {
 	Port        int               `json:"port"`
 	Public      bool              `json:"public"`
 	Image       string            `json:"image,omitempty"`
+	Dockerfile  string            `json:"dockerfile,omitempty"`
 	Postgres    bool              `json:"postgres"`
 	Secrets     []string          `json:"secrets"`
 	Volumes     []string          `json:"volumes"`
@@ -48,6 +50,7 @@ type raw struct {
 	Port        int               `toml:"port"`
 	Public      *bool             `toml:"public"`
 	Image       string            `toml:"image"`
+	Dockerfile  string            `toml:"dockerfile"`
 	Postgres    bool              `toml:"postgres"`
 	Secrets     []string          `toml:"secrets"`
 	Volumes     []string          `toml:"volumes"`
@@ -82,9 +85,23 @@ func Load(sourceDir string) (*Manifest, error) {
 	if r.Port < 1 || r.Port > 65535 {
 		return nil, fmt.Errorf("invalid port %q in slab.toml", fmt.Sprint(r.Port))
 	}
+	dockerfile := r.Dockerfile
 	if r.Image == "" {
-		if _, err := os.Stat(filepath.Join(sourceDir, "Dockerfile")); err != nil {
-			return nil, fmt.Errorf("%s has neither an \"image\" in slab.toml nor a Dockerfile", sourceDir)
+		if dockerfile != "" {
+			if _, err := os.Stat(filepath.Join(sourceDir, dockerfile)); err != nil {
+				return nil, fmt.Errorf("slab.toml points at dockerfile %q but %s/%s does not exist", dockerfile, sourceDir, dockerfile)
+			}
+		} else {
+			found, err := FindDockerfile(sourceDir)
+			if err != nil {
+				return nil, err
+			}
+			if found == "" {
+				return nil, fmt.Errorf("%s has neither an \"image\" in slab.toml nor a Dockerfile", sourceDir)
+			}
+			if rel, _ := filepath.Rel(sourceDir, found); rel != "Dockerfile" {
+				dockerfile = rel
+			}
 		}
 	}
 	volumes := make([]string, 0, len(r.Volumes))
@@ -114,6 +131,7 @@ func Load(sourceDir string) (*Manifest, error) {
 		Port:        r.Port,
 		Public:      r.Public == nil || *r.Public, // default true; only literal false disables
 		Image:       r.Image,
+		Dockerfile:  dockerfile,
 		Postgres:    r.Postgres,
 		Secrets:     secrets,
 		Volumes:     volumes,
@@ -137,10 +155,75 @@ func validateVolume(entry string) error {
 
 var exposeRe = regexp.MustCompile(`(?im)^\s*EXPOSE\s+(\d+)`)
 
+// FindDockerfile searches the source tree (depth <= 3) for a Dockerfile —
+// memos keeps it in scripts/, plenty of repos use docker/. Exact "Dockerfile"
+// beats variants; shallower beats deeper; a tie is an error listing the
+// candidates. The build context is always the repo root.
+func FindDockerfile(sourceDir string) (string, error) {
+	ignored := map[string]bool{"node_modules": true, ".git": true, "vendor": true, "dist": true, "build_output": true}
+	var candidates []string
+	var walk func(dir string, depth int)
+	walk = func(dir string, depth int) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), "Dockerfile") {
+				candidates = append(candidates, filepath.Join(dir, e.Name()))
+			} else if e.IsDir() && depth < 3 && !ignored[e.Name()] && !strings.HasPrefix(e.Name(), ".") {
+				walk(filepath.Join(dir, e.Name()), depth+1)
+			}
+		}
+	}
+	walk(sourceDir, 0)
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	var exact []string
+	for _, c := range candidates {
+		if filepath.Base(c) == "Dockerfile" {
+			exact = append(exact, c)
+		}
+	}
+	pool := candidates
+	if len(exact) > 0 {
+		pool = exact
+	}
+	sort.Slice(pool, func(i, j int) bool {
+		di, dj := strings.Count(pool[i], string(filepath.Separator)), strings.Count(pool[j], string(filepath.Separator))
+		if di != dj {
+			return di < dj
+		}
+		return pool[i] < pool[j]
+	})
+	if len(exact) != 1 && len(pool) > 1 {
+		shallow := strings.Count(pool[0], string(filepath.Separator))
+		var tied []string
+		for _, c := range pool {
+			if strings.Count(c, string(filepath.Separator)) == shallow {
+				rel, _ := filepath.Rel(sourceDir, c)
+				tied = append(tied, rel)
+			}
+		}
+		if len(tied) > 1 {
+			return "", fmt.Errorf("Found several Dockerfiles (%s) — add a slab.toml to choose, or keep one", strings.Join(tied, ", "))
+		}
+	}
+	return pool[0], nil
+}
+
 // infer builds a manifest for a Dockerfile-only source: name from the dir,
 // type service, port from the first EXPOSE (default 3000), PORT injected.
 func infer(sourceDir string) (*Manifest, error) {
-	df, err := os.ReadFile(filepath.Join(sourceDir, "Dockerfile"))
+	found, err := FindDockerfile(sourceDir)
+	if err != nil {
+		return nil, err
+	}
+	if found == "" {
+		return nil, fmt.Errorf("no slab.toml found in %s — and no Dockerfile to infer an app from. Add a slab.toml (slab init) or a Dockerfile", sourceDir)
+	}
+	df, err := os.ReadFile(found)
 	if err != nil {
 		return nil, fmt.Errorf("no slab.toml found in %s — and no Dockerfile to infer an app from. Add a slab.toml (slab init) or a Dockerfile", sourceDir)
 	}
@@ -148,11 +231,16 @@ func infer(sourceDir string) (*Manifest, error) {
 	if m := exposeRe.FindSubmatch(df); m != nil {
 		fmt.Sscanf(string(m[1]), "%d", &port)
 	}
+	dockerfile := ""
+	if rel, _ := filepath.Rel(sourceDir, found); rel != "Dockerfile" {
+		dockerfile = rel
+	}
 	return &Manifest{
 		Name:        sanitizeName(filepath.Base(sourceDir)),
 		Type:        Service,
 		Port:        port,
 		Public:      true,
+		Dockerfile:  dockerfile,
 		Secrets:     []string{},
 		Volumes:     []string{},
 		IdleTimeout: "5m",

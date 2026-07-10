@@ -259,6 +259,18 @@ source = "./${apiApp}"
   ok(built === 'built-by-slab', 'the built image is the one running')
   await api('DELETE', `/v1/apps/${buildApp}`)
 
+  // dockerfile detection: no slab.toml, Dockerfile in a subdirectory (memos-style)
+  const subApp = `conf-sub-${RUN}`
+  const subDir = path.join(dir, 'fixtures', subApp, 'scripts')
+  fs.mkdirSync(subDir, { recursive: true })
+  fs.writeFileSync(path.join(subDir, 'Dockerfile'), 'FROM nginx:alpine\nEXPOSE 80\nRUN echo subdir-dockerfile > /usr/share/nginx/html/index.html\n')
+  r = await api('POST', '/v1/apps', { sourceDir: path.join(dir, 'fixtures', subApp) })
+  ok(r.status === 201 && (r.json?.app?.manifest?.dockerfile || '').includes('scripts'), 'Dockerfile detected in a subdirectory', r.text)
+  r = await api('POST', `/v1/apps/${subApp}/deploy`)
+  ok(r.status === 200 && docker('exec', `slab-${subApp}`, 'cat', '/usr/share/nginx/html/index.html') === 'subdir-dockerfile',
+    'subdirectory Dockerfile builds with root context', r.text)
+  await api('DELETE', `/v1/apps/${subApp}`)
+
   // git sources: clone on create, pull on redeploy (local file:// repo — no network)
   const gitApp = `conf-git-${RUN}`
   const gitRepo = path.join(dir, 'fixtures', `${gitApp}-repo`)

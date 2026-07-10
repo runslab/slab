@@ -22,8 +22,18 @@ export function loadManifest(sourceDir: string): Manifest {
     throw new Error(`Invalid port "${raw.port}" in slab.toml`)
   }
   const image = raw.image != null ? String(raw.image) : undefined
-  if (!image && !fs.existsSync(path.join(sourceDir, 'Dockerfile'))) {
-    throw new Error(`${sourceDir} has neither an "image" in slab.toml nor a Dockerfile`)
+  let dockerfile = raw.dockerfile != null ? String(raw.dockerfile) : undefined
+  if (!image) {
+    if (dockerfile) {
+      if (!fs.existsSync(path.join(sourceDir, dockerfile))) {
+        throw new Error(`slab.toml points at dockerfile "${dockerfile}" but ${sourceDir}/${dockerfile} does not exist`)
+      }
+    } else {
+      const found = findDockerfile(sourceDir)
+      if (!found) throw new Error(`${sourceDir} has neither an "image" in slab.toml nor a Dockerfile`)
+      const rel = path.relative(sourceDir, found)
+      dockerfile = rel === 'Dockerfile' ? undefined : rel
+    }
   }
 
   return {
@@ -33,6 +43,7 @@ export function loadManifest(sourceDir: string): Manifest {
     port,
     public: raw.public !== false,
     image,
+    dockerfile,
     postgres: raw.postgres === true,
     secrets: Array.isArray(raw.secrets) ? raw.secrets.map(String) : [],
     volumes: Array.isArray(raw.volumes) ? raw.volumes.map(v => parseVolume(String(v))) : [],
@@ -67,20 +78,57 @@ function sanitizeName(raw: string): string {
 // No slab.toml? Any repo with a Dockerfile can still run: name from the
 // directory (for git sources that's the repo name), type service, port from
 // the Dockerfile's first EXPOSE (default 3000). PORT is injected so apps
-// that read it listen where slab expects.
+// that read it listen where slab expects. The Dockerfile doesn't have to be
+// at the root — findDockerfile searches (memos keeps it in scripts/, plenty
+// of repos use docker/); the build context is always the repo root, which is
+// the convention subdirectory Dockerfiles are written for.
+const DOCKERFILE_SEARCH_DEPTH = 3
+const IGNORED_DIRS = new Set(['node_modules', '.git', 'vendor', 'dist', 'build_output'])
+
+export function findDockerfile(sourceDir: string): string | null {
+  const candidates: string[] = []
+  const walk = (dir: string, depth: number) => {
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (e.isFile() && /^Dockerfile/.test(e.name)) candidates.push(path.join(dir, e.name))
+      else if (e.isDirectory() && depth < DOCKERFILE_SEARCH_DEPTH && !IGNORED_DIRS.has(e.name) && !e.name.startsWith('.')) {
+        walk(path.join(dir, e.name), depth + 1)
+      }
+    }
+  }
+  walk(sourceDir, 0)
+  if (candidates.length === 0) return null
+  // exact "Dockerfile" beats variants (Dockerfile.dev …); shallower beats deeper
+  const exact = candidates.filter((c) => path.basename(c) === 'Dockerfile')
+  const pool = exact.length > 0 ? exact : candidates
+  pool.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length || a.localeCompare(b))
+  if (exact.length !== 1 && pool.length > 1) {
+    const shallowest = pool[0].split(path.sep).length
+    const tied = pool.filter((c) => c.split(path.sep).length === shallowest)
+    if (tied.length > 1) {
+      const rels = tied.map((c) => path.relative(sourceDir, c)).join(', ')
+      throw new Error(`Found several Dockerfiles (${rels}) — add a slab.toml to choose, or keep one`)
+    }
+  }
+  return pool[0]
+}
+
 function inferManifest(sourceDir: string): Manifest {
-  const dockerfile = path.join(sourceDir, 'Dockerfile')
-  if (!fs.existsSync(dockerfile)) {
+  const dockerfile = findDockerfile(sourceDir)
+  if (!dockerfile) {
     throw new Error(`No slab.toml found in ${sourceDir} — and no Dockerfile to infer an app from. Add a slab.toml (slab init) or a Dockerfile.`)
   }
   const expose = /^\s*EXPOSE\s+(\d+)/im.exec(fs.readFileSync(dockerfile, 'utf-8'))
   const port = expose ? Number(expose[1]) : 3000
+  const rel = path.relative(sourceDir, dockerfile)
   return {
     name: sanitizeName(path.basename(sourceDir)),
     type: 'service',
     port,
     public: true,
     image: undefined,
+    dockerfile: rel === 'Dockerfile' ? undefined : rel,
     postgres: false,
     secrets: [],
     idle_timeout: '5m',

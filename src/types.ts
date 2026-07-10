@@ -14,6 +14,8 @@ export interface Manifest {
                             // reachable ONLY by system-mates (docs/design/systems.md)
   image?: string            // prebuilt image (e.g. "nginx:alpine") — pull & run, no build.
                             // Omit to build from the Dockerfile in the source dir.
+  dockerfile?: string       // relative path when the Dockerfile isn't at the root
+                            // (auto-detected; build context is always the source dir)
   postgres?: boolean        // true -> slab provisions a DB and injects DATABASE_URL
   secrets?: string[]        // env var names the app expects (values set via `slab secret set`)
   volumes?: string[]        // named volumes, "name:/container/path" — data survives redeploys.

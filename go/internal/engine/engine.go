@@ -146,11 +146,14 @@ func (e *Engine) RunContainer(ctx context.Context, app *state.AppRecord, imageTa
 }
 
 // BuildImage tars the source dir and builds its Dockerfile into <tag>.
-func (e *Engine) BuildImage(ctx context.Context, sourceDir, tag string) error {
+func (e *Engine) BuildImage(ctx context.Context, sourceDir, tag string, dockerfile string) error {
+	if dockerfile == "" {
+		dockerfile = "Dockerfile"
+	}
 	pr, pw := io.Pipe()
 	go func() { pw.CloseWithError(tarDir(sourceDir, pw)) }()
 	resp, err := e.cli.ImageBuild(ctx, pr, build.ImageBuildOptions{
-		Tags: []string{tag}, Remove: true, Dockerfile: "Dockerfile",
+		Tags: []string{tag}, Remove: true, Dockerfile: dockerfile,
 	})
 	if err != nil {
 		return fmt.Errorf("build failed for %s: %w", tag, err)

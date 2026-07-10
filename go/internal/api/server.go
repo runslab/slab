@@ -371,7 +371,7 @@ func (s *Server) deployApp(ctx context.Context, rec *state.AppRecord) error {
 	imageTag := m.Image
 	if imageTag == "" {
 		imageTag = fmt.Sprintf("slab-%s:v%d", rec.Name, rec.Version+1)
-		if err := s.Eng.BuildImage(ctx, rec.SourceDir, imageTag); err != nil {
+		if err := s.Eng.BuildImage(ctx, rec.SourceDir, imageTag, m.Dockerfile); err != nil {
 			return err
 		}
 	} else if err := s.Eng.EnsureImage(ctx, imageTag); err != nil {

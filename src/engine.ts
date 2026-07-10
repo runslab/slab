@@ -132,7 +132,7 @@ export function createEngine(): Engine {
     const tag = `slab/${app.name}:${app.version}`
     let stream: NodeJS.ReadableStream
     try {
-      stream = await docker.buildImage({ context: app.sourceDir, src: ['.'] }, { t: tag })
+      stream = await docker.buildImage({ context: app.sourceDir, src: ['.'] }, { t: tag, dockerfile: app.manifest.dockerfile ?? 'Dockerfile' })
     } catch (err) {
       throw new Error(`docker build failed for ${app.name}: ${errMsg(err)}`)
     }

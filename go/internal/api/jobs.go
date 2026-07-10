@@ -261,7 +261,7 @@ func (s *Server) executeJob(job *state.JobRecord) {
 			suffix = job.ID[i+1:]
 		}
 		imageTag = "slab-job/" + job.Name + ":" + suffix
-		if err := s.Eng.BuildImage(ctx, *job.SourceDir, imageTag); err != nil {
+		if err := s.Eng.BuildImage(ctx, *job.SourceDir, imageTag, ""); err != nil {
 			fail(err.Error())
 			return
 		}
