@@ -77,7 +77,7 @@ func Run(version string) {
 
 	go func() {
 		log.Printf("ingress :%d", proxyPort)
-		log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", bind, proxyPort), (&proxy.Proxy{St: st, Eng: eng}).Handler()))
+		log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", bind, proxyPort), (&proxy.Proxy{St: st, Eng: eng, NodeName: node.Name}).Handler()))
 	}()
 
 	log.Printf("slab daemon (go, %s) node %q api %s:%d", version, node.Name, bind, apiPort)

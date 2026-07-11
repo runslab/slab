@@ -451,6 +451,23 @@ node = "conf-peer"
         return ciStatus === 200
       }, 'cluster ingress', 15000).catch(() => {})
       ok(ciStatus === 200, 'this node proxies to a peer-owned app by Host header', `status ${ciStatus}`)
+
+      // node-scoped ingress: <app>.<peernode>.localhost from THIS node's proxy
+      let nsStatus = 0
+      await waitFor(async () => {
+        nsStatus = await new Promise((resolve) => {
+          const rq = http.request({ host: '127.0.0.1', port: PROXY, path: '/', headers: { Host: `${ciApp}.conf-peer.localhost` } }, (res2) => { res2.resume(); resolve(res2.statusCode) })
+          rq.on('error', () => resolve(0)); rq.end()
+        })
+        return nsStatus === 200
+      }, 'node-scoped ingress', 10000).catch(() => {})
+      ok(nsStatus === 200, 'node-scoped <app>.<node>.localhost reaches the named peer', `status ${nsStatus}`)
+      const badNode = await new Promise((resolve) => {
+        const rq = http.request({ host: '127.0.0.1', port: PROXY, path: '/', headers: { Host: `${ciApp}.nosuchnode.localhost` } }, (res2) => { res2.resume(); resolve(res2.statusCode) })
+        rq.on('error', () => resolve(0)); rq.end()
+      })
+      ok(badNode === 404, 'node-scoped to an unknown node 404s', `status ${badNode}`)
+
       await fetch(`http://127.0.0.1:${PORT + 1}/v1/apps/${ciApp}`, { method: 'DELETE' })
 
       // ── image shipping: build here, run there — no source on the peer ────

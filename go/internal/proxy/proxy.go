@@ -21,8 +21,9 @@ import (
 const wakeTimeout = 15 * time.Second
 
 type Proxy struct {
-	St  *state.State
-	Eng *engine.Engine
+	St       *state.State
+	Eng      *engine.Engine
+	NodeName string
 
 	routeMu    sync.Mutex
 	routes     map[string]*peerRoute
@@ -46,7 +47,26 @@ func (p *Proxy) Handler() http.Handler {
 		if i := strings.Index(host, ":"); i >= 0 {
 			host = host[:i]
 		}
-		name, _, _ := strings.Cut(host, ".")
+		name, node := parseHost(host)
+
+		// node-scoped ingress: <app>.<node>.localhost reaches that node's app
+		// from any node's proxy — the fleet is one rack you can address.
+		if node != "" && node != p.NodeName {
+			if route := p.peerByName(node); route != nil {
+				metrics.IncRequest(name)
+				target, _ := url.Parse(fmt.Sprintf("http://%s:%d", route.host, route.proxyPort))
+				rp := httputil.NewSingleHostReverseProxy(target)
+				orig := rp.Director
+				rp.Director = func(req *http.Request) { orig(req); req.Host = name + ".localhost" } // peer routes by <app>.localhost
+				rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+					sendJSON(w, 502, "fleet ingress to "+node+" failed: "+err.Error())
+				}
+				rp.ServeHTTP(w, r)
+				return
+			}
+			sendJSON(w, 404, "unknown node \""+node+"\" — slab peer add "+node+" <url>")
+			return
+		}
 
 		p.St.Records.Lock()
 		rec := p.St.Apps[name]
@@ -169,6 +189,64 @@ func (p *Proxy) resolvePeerApp(name string) *peerRoute {
 		p.routeCache = map[string]routeEntry{}
 	}
 	p.routeCache[name] = routeEntry{route: found, at: time.Now()}
+	p.routeMu.Unlock()
+	return found
+}
+
+// parseHost splits <app>[.<node>].localhost|.slab into (app, node). App and
+// node names contain no dots, so the label count is unambiguous: one label
+// before the tld is a local app, two is app.node. node == "" means local.
+func parseHost(host string) (app, node string) {
+	h := strings.TrimSuffix(strings.TrimSuffix(host, ".localhost"), ".slab")
+	parts := strings.Split(h, ".")
+	switch len(parts) {
+	case 1:
+		return parts[0], ""
+	case 2:
+		return parts[0], parts[1]
+	default:
+		return parts[0], parts[1] // extra labels ignored
+	}
+}
+
+// peerByName resolves a peer's ingress by node name (cached briefly).
+func (p *Proxy) peerByName(node string) *peerRoute {
+	p.routeMu.Lock()
+	if p.routeCache == nil {
+		p.routeCache = map[string]routeEntry{}
+	}
+	if e, ok := p.routeCache["@node:"+node]; ok && time.Since(e.at) < 5*time.Second {
+		r := e.route
+		p.routeMu.Unlock()
+		return r
+	}
+	p.routeMu.Unlock()
+
+	p.St.Records.RLock()
+	peer := p.St.Peers[node]
+	p.St.Records.RUnlock()
+
+	var found *peerRoute
+	if peer != nil {
+		client := &http.Client{Timeout: 3 * time.Second}
+		req, _ := http.NewRequest("GET", peer.URL+"/v1/health", nil)
+		if peer.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+peer.Token)
+		}
+		if resp, err := client.Do(req); err == nil {
+			var health struct {
+				Node      string `json:"node"`
+				ProxyPort int    `json:"proxyPort"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&health)
+			resp.Body.Close()
+			if health.ProxyPort > 0 {
+				found = &peerRoute{node: node, host: hostOf(peer.URL), proxyPort: health.ProxyPort}
+			}
+		}
+	}
+	p.routeMu.Lock()
+	p.routeCache["@node:"+node] = routeEntry{route: found, at: time.Now()}
 	p.routeMu.Unlock()
 	return found
 }
