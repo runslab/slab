@@ -19,6 +19,7 @@ import (
 	"github.com/runslab/slab/go/internal/gitsrc"
 	"github.com/runslab/slab/go/internal/logbuf"
 	"github.com/runslab/slab/go/internal/manifest"
+	"github.com/runslab/slab/go/internal/metrics"
 	"github.com/runslab/slab/go/internal/state"
 	"github.com/runslab/slab/go/internal/tunnel"
 )
@@ -31,6 +32,7 @@ type Server struct {
 	ProxyPort int
 	Advertise string // what other nodes dial for trunks (SLAB_ADVERTISE)
 	Tunnels   *tunnel.Manager
+	Version   string
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -256,6 +258,36 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.Header().Set("content-type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(out))
+	})
+
+	// Prometheus exposition: slab's own state (fleet/app up-down + request
+	// counts) — what only the daemon knows; cAdvisor covers container resources.
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "text/plain; version=0.0.4; charset=utf-8")
+		_, _ = io.WriteString(w, metrics.Render(s.St, s.NodeName, s.Version))
+	})
+
+	// Prometheus http service-discovery: every running app as a scrape target
+	// (host.docker.internal:<hostPort>). For apps that expose their own
+	// /metrics; the daemon's slab_app_up covers the rest.
+	mux.HandleFunc("GET /v1/sd", func(w http.ResponseWriter, r *http.Request) {
+		type sdTarget struct {
+			Targets []string          `json:"targets"`
+			Labels  map[string]string `json:"labels"`
+		}
+		s.St.Records.RLock()
+		out := []sdTarget{}
+		for _, a := range s.St.Apps {
+			if a.HostPort == nil || a.State != state.Running {
+				continue
+			}
+			out = append(out, sdTarget{
+				Targets: []string{fmt.Sprintf("host.docker.internal:%d", *a.HostPort)},
+				Labels:  map[string]string{"__meta_slab_app": a.Name, "node": s.NodeName},
+			})
+		}
+		s.St.Records.RUnlock()
+		writeJSON(w, 200, out)
 	})
 
 	// the daemon's OWN log — tail or follow, over the API so -N works too

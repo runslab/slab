@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/runslab/slab/go/internal/engine"
+	"github.com/runslab/slab/go/internal/metrics"
 	"github.com/runslab/slab/go/internal/state"
 )
 
@@ -59,6 +60,7 @@ func (p *Proxy) Handler() http.Handler {
 			// cluster ingress: not ours — find the peer that runs it and
 			// reverse-proxy to that node's ingress (one rack, any node)
 			if route := p.resolvePeerApp(name); route != nil {
+				metrics.IncRequest(name)
 				target, _ := url.Parse(fmt.Sprintf("http://%s:%d", route.host, route.proxyPort))
 				rp := httputil.NewSingleHostReverseProxy(target)
 				rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -82,6 +84,7 @@ func (p *Proxy) Handler() http.Handler {
 			}
 		}
 
+		metrics.IncRequest(rec.Name)
 		target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", *rec.HostPort))
 		httputil.NewSingleHostReverseProxy(target).ServeHTTP(w, r)
 	})

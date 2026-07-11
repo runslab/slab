@@ -677,6 +677,37 @@ async function main(): Promise<void> {
     res.json({ logs })
   }))
 
+  // Prometheus exposition: slab's own state (fleet/app up-down + request
+  // counts). cAdvisor covers container resources; this covers what only the
+  // daemon knows.
+  api.get('/metrics', (_req, res) => {
+    const esc = (v: string) => v.replace(/"/g, '\\"')
+    const node = esc(state.nodeName ?? 'slab')
+    const byState: Record<string, number> = {}
+    const lines: string[] = []
+    lines.push('# HELP slab_node_up 1 while the daemon is serving.', '# TYPE slab_node_up gauge', `slab_node_up{node="${node}",version="1.0.0"} 1`)
+    for (const a of Object.values(state.apps)) byState[a.state] = (byState[a.state] ?? 0) + 1
+    lines.push('# HELP slab_apps Apps on this node by state.', '# TYPE slab_apps gauge')
+    for (const st of Object.keys(byState).sort()) lines.push(`slab_apps{node="${node}",state="${st}"} ${byState[st]}`)
+    lines.push('# HELP slab_systems Systems deployed on this node.', '# TYPE slab_systems gauge', `slab_systems{node="${node}"} ${Object.keys(systems).length}`)
+    lines.push('# HELP slab_jobs Jobs in history on this node.', '# TYPE slab_jobs gauge', `slab_jobs{node="${node}"} ${Object.keys(jobs).length}`)
+    const names = Object.keys(state.apps).sort()
+    lines.push('# HELP slab_app_up 1 if the app container is running.', '# TYPE slab_app_up gauge')
+    for (const n of names) lines.push(`slab_app_up{node="${node}",app="${esc(n)}"} ${state.apps[n].state === 'running' ? 1 : 0}`)
+    lines.push('# HELP slab_app_requests_total Ingress requests routed to the app.', '# TYPE slab_app_requests_total counter')
+    for (const n of names) lines.push(`slab_app_requests_total{node="${node}",app="${esc(n)}"} ${requestTotals.get(n) ?? 0}`)
+    res.setHeader('content-type', 'text/plain; version=0.0.4; charset=utf-8')
+    res.send(lines.join('\n') + '\n')
+  })
+
+  // Prometheus http service-discovery: running apps as scrape targets.
+  api.get('/v1/sd', (_req, res) => {
+    const out = Object.values(state.apps)
+      .filter((a) => a.hostPort != null && a.state === 'running')
+      .map((a) => ({ targets: [`host.docker.internal:${a.hostPort}`], labels: { __meta_slab_app: a.name, node: state.nodeName ?? 'slab' } }))
+    res.json(out)
+  })
+
   // the daemon's OWN log — tail or follow (so -N works for it too)
   api.get('/v1/logs', wrap(async (req, res) => {
     const tail = parseTail(req.query.tail)
@@ -1321,9 +1352,11 @@ async function main(): Promise<void> {
   })
 
   const lastRequestSaveAt = new Map<string, number>()
+  const requestTotals = new Map<string, number>()
   function onRequest(name: string): void {
     const app = state.apps[name]
     if (!app) return
+    requestTotals.set(name, (requestTotals.get(name) ?? 0) + 1)
     app.lastRequestAt = new Date().toISOString()
     broadcast({ type: 'request', app: name })
     const now = Date.now()

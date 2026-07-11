@@ -69,7 +69,7 @@ func Run(version string) {
 	// pidfile — the CLI restarts the daemon by it (slab node open/close, upgrade)
 	pidFile := filepath.Join(state.Dir(), "daemon.pid")
 	_ = os.WriteFile(pidFile, []byte(fmt.Sprint(os.Getpid())), 0o644)
-	srv := &api.Server{St: st, Eng: eng, NodeName: node.Name, Token: node.Token, ProxyPort: proxyPort, Advertise: advertise, Tunnels: tunnel.New()}
+	srv := &api.Server{St: st, Eng: eng, NodeName: node.Name, Token: node.Token, ProxyPort: proxyPort, Advertise: advertise, Tunnels: tunnel.New(), Version: version}
 
 	go idleReaper(st, eng)
 

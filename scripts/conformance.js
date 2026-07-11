@@ -94,6 +94,13 @@ async function main() {
   await waitFor(async () => (await api('GET', '/v1/apps')).status === 200, 'daemon boot', 20000)
   ok(true, 'daemon boots and serves /v1/apps')
 
+  const metricsRes = await fetch(`${API}/metrics`)
+  const metricsText = await metricsRes.text()
+  ok(metricsRes.status === 200 && /slab_node_up\{node="conf-a"/.test(metricsText) && metricsText.includes('slab_app_requests_total'),
+    'Prometheus /metrics exposes slab_node_up + slab_app_requests_total', metricsText.slice(0, 80))
+  const sdRes = await fetch(`${API}/v1/sd`)
+  ok(sdRes.status === 200 && Array.isArray(await sdRes.json()), '/v1/sd returns a target array')
+
   const dash = await fetch(`${API}/`)
   const dashHtml = await dash.text()
   ok(dash.status === 200 && dashHtml.toLowerCase().includes('hyperscaler') && dashHtml.includes(String(PROXY)),
