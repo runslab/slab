@@ -12,3 +12,6 @@ source = "./prometheus"
 
 [apps.grafana]
 source = "./grafana"
+
+[apps.loki]
+source = "./loki"

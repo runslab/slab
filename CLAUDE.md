@@ -156,9 +156,19 @@ Module `github.com/runslab/slab/go`, ONE binary `cmd/slab`: `slab daemon`,
 rung = `scripts/conformance.js` green with `DAEMON_CMD="go/bin/slab daemon"`
 (`CONF_RUNG=n` scopes the run). Releases: push a `v*` tag →
 .github/workflows/release.yml cross-compiles darwin/linux × amd64/arm64
-and publishes tarballs + checksums. The TS daemon is the reference
-implementation until the ladder is complete; behavior questions are
-answered by reading src/, not by inventing.
+and publishes tarballs + checksums.
+
+**The Go daemon is THE daemon (decided 2026-07-11).** It reached full
+parity (conformance 75/75: apps, systems, jobs, secrets, postgres, trunks,
+MCP, CLI, cluster ingress, image-ship, metrics) and v0.2.0 shipped as the
+single binary. New features land in Go ONLY. The TypeScript daemon (`src/`)
+is now FROZEN legacy: it still runs the live rack + the installer default
+until the cutover, and remains the historical reference the Go port was
+validated against — but do not add features to it. `scripts/conformance.js`
+is now Go's spec (run `DAEMON_CMD="go/bin/slab daemon"`); TS need not stay
+green as they diverge. Pending cutover work: migrate euler's rack + conduit
+from the TS daemon to `slab daemon` (Go), switch the installer to release
+binaries, port the AWS provider (TS-only today).
 
 ## Dev workflow (this checkout)
 

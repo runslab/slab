@@ -15,6 +15,7 @@ import (
 	"github.com/runslab/slab/go/internal/api"
 	"github.com/runslab/slab/go/internal/engine"
 	"github.com/runslab/slab/go/internal/logbuf"
+	"github.com/runslab/slab/go/internal/logship"
 	"github.com/runslab/slab/go/internal/manifest"
 	"github.com/runslab/slab/go/internal/proxy"
 	"github.com/runslab/slab/go/internal/state"
@@ -72,6 +73,7 @@ func Run(version string) {
 	srv := &api.Server{St: st, Eng: eng, NodeName: node.Name, Token: node.Token, ProxyPort: proxyPort, Advertise: advertise, Tunnels: tunnel.New(), Version: version}
 
 	go idleReaper(st, eng)
+	go (&logship.Shipper{St: st, Node: node.Name}).Run(context.Background())
 
 	go func() {
 		log.Printf("ingress :%d", proxyPort)

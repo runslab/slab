@@ -26,24 +26,30 @@ instrumentation — slab knows this because it owns the ingress and the state.
 |---|---|---|
 | `prometheus` | scrapes `host.docker.internal:7766/metrics` | private |
 | `grafana` | the face — dark skin, anonymous LAN admin, dashboard provisioned | public |
+| `loki` | receives log pushes from the daemon (grafana queries it) | public* |
+
+\* loki is public only so the daemon can reach its push port from the host; you query it through grafana, not directly.
 
 Both build from a Dockerfile so their config is baked in — slab volumes are
 **named-only** (no host bind-mounts), so config can't be mounted from the host.
 
-## Honest limits (the host-access wall)
+## Logs — the daemon ships them (no host-mounted agent)
 
-This v1 is slab's *own* metrics. Two things a fuller stack wants are **not**
-here, on purpose:
+Deploy `loki` and the slab daemon **auto-discovers it** and starts pushing
+every app's container logs (plus its own log ring) to it, labeled
+`{app,node}`. No promtail, no `docker.sock` mount — the daemon already owns
+the containers, so it ships the logs itself. Grafana's "logs (all apps +
+daemon)" panel searches them. Set `SLAB_LOKI_URL` to push elsewhere; don't
+run loki and shipping stays off.
 
-- **cAdvisor** (per-container CPU/mem) needs `/var/run/docker.sock` + `/sys`
-  host mounts.
-- **Loki log aggregation** needs a shipper with host/socket access.
+## Honest limit (the host-access wall)
 
-slab deliberately forbids host bind-mounts (`volumes` are named only). So
-infra tools that read host state don't drop in as normal slab apps. That's a
-real product tension — the fix is either a privileged/host-mount escape hatch
-for system members, or daemon-side pushing (the daemon already has the log
-ring and app logs; it could push to a Loki endpoint). Tracked for later.
+**cAdvisor** (per-container CPU/mem) still isn't here: it needs
+`/var/run/docker.sock` + `/sys` host mounts, and slab forbids host
+bind-mounts (`volumes` are named only). Logs sidestepped this by having the
+daemon push; container *resource* metrics would need either a host-mount
+escape hatch for system members, or the daemon exporting cgroup stats
+itself. Tracked for later.
 
 ## App-level metrics (opt-in, future)
 

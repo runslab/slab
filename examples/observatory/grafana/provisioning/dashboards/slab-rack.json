@@ -1,43 +1,232 @@
 {
   "uid": "slab-rack",
-  "title": "slab · the rack",
-  "tags": ["slab"],
+  "title": "slab \u00b7 the rack",
+  "tags": [
+    "slab"
+  ],
   "timezone": "browser",
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
-      "type": "stat", "title": "node", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
-      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }], "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } },
-      "targets": [{ "expr": "slab_node_up", "legendFormat": "{{node}}" }]
+      "type": "stat",
+      "title": "node",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "slab_node_up",
+          "legendFormat": "{{node}}"
+        }
+      ]
     },
     {
-      "type": "stat", "title": "apps running", "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } } },
-      "targets": [{ "expr": "sum(slab_apps{state=\"running\"})" }]
+      "type": "stat",
+      "title": "apps running",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(slab_apps{state=\"running\"})"
+        }
+      ]
     },
     {
-      "type": "stat", "title": "sleeping", "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" } } },
-      "targets": [{ "expr": "sum(slab_apps{state=\"sleeping\"})" }]
+      "type": "stat",
+      "title": "sleeping",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(slab_apps{state=\"sleeping\"})"
+        }
+      ]
     },
     {
-      "type": "stat", "title": "systems", "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
-      "targets": [{ "expr": "slab_systems" }]
+      "type": "stat",
+      "title": "systems",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "slab_systems"
+        }
+      ]
     },
     {
-      "type": "stat", "title": "jobs", "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
-      "targets": [{ "expr": "slab_jobs" }]
+      "type": "stat",
+      "title": "jobs",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "slab_jobs"
+        }
+      ]
     },
     {
-      "type": "timeseries", "title": "requests / min per app", "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never" }, "unit": "reqpm" } },
-      "targets": [{ "expr": "rate(slab_app_requests_total[1m]) * 60", "legendFormat": "{{app}}" }]
+      "type": "timeseries",
+      "title": "requests / min per app",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "showPoints": "never"
+          },
+          "unit": "reqpm"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(slab_app_requests_total[1m]) * 60",
+          "legendFormat": "{{app}}"
+        }
+      ]
     },
     {
-      "type": "state-timeline", "title": "app up / down", "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
-      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "1": { "text": "up", "color": "green" }, "0": { "text": "down", "color": "red" } } }], "custom": { "fillOpacity": 90 } } },
-      "targets": [{ "expr": "slab_app_up", "legendFormat": "{{app}}" }]
+      "type": "state-timeline",
+      "title": "app up / down",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "up",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "down",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 90
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "slab_app_up",
+          "legendFormat": "{{app}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "logs (all apps + daemon)",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "slab-loki"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "slab-loki"
+          },
+          "expr": "{node=~\".+\"}"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,

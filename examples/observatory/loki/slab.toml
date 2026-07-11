@@ -1,0 +1,8 @@
+# Loki — receives log pushes from the slab daemon (which ships every
+# container's logs because it owns the containers — no host-mounted agent).
+# PUBLIC so the daemon can reach its push port from the host; you don't
+# browse it directly (grafana queries it by name, loki:3100).
+name = "loki"
+type = "service"
+port = 3100
+volumes = ["lokidata:/loki"]
