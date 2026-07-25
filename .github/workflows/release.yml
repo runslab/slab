@@ -14,8 +14,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
       - name: build all platforms
@@ -31,7 +31,7 @@ jobs:
             rm dist/slab
           done
           (cd dist && shasum -a 256 *.tar.gz > sha256sums.txt)
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             go/dist/*.tar.gz
