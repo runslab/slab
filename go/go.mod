@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.7.0
+	github.com/docker/go-connections v0.8.0
 )
 
 require (
